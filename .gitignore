@@ -26,3 +26,5 @@ stale_outputs_checked
 /android
 GEMINI.md
 CLAUDE.md
+.intellijPlatform/
+build/
