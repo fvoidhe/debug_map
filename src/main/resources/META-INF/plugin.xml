@@ -20,6 +20,7 @@
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.compose</depends>
+    <depends>com.intellij.mcpServer</depends>
 
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
     <!-- Extensions defined by the plugin.
@@ -27,5 +28,10 @@
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="MyToolWindow" factoryClass="com.example.intelligent_debug.MyToolWindowFactory"
                     icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="com.intellij.mcpServer">
+        <mcpToolset implementation="com.example.intelligent_debug.toolsets.DebugToolset"/>
+        <mcpToolset implementation="com.example.intelligent_debug.toolsets.BookmarkToolset"/>
     </extensions>
 </idea-plugin>
