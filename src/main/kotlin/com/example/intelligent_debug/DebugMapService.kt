@@ -73,7 +73,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     state.groups = groupManager.getGroupsSnapshot().values.map { group ->
       PersistedGroup().also { pg ->
         pg.id = group.id
-        pg.annotation = group.annotation
+        pg.name = group.name
         pg.createdAt = group.createdAt
         pg.lastActivatedAt = group.lastActivatedAt
         pg.breakpoints = breakpointDefManager.getGroupBreakpoints(group.id).map { def ->
@@ -83,7 +83,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
             pb.typeId = def.typeId
             pb.condition = def.condition
             pb.logExpression = def.logExpression
-            pb.annotation = def.annotation
+            pb.name = def.name?.ifEmpty { null }
           }
         }.toMutableList()
       }
@@ -99,7 +99,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     val groupsSnapshot = state.groups.associate { pg ->
       pg.id to GroupData(
         id = pg.id,
-        annotation = pg.annotation,
+        name = pg.name,
         createdAt = pg.createdAt,
         lastActivatedAt = pg.lastActivatedAt,
       )
@@ -116,7 +116,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
           typeId = pb.typeId,
           condition = pb.condition,
           logExpression = pb.logExpression,
-          annotation = pb.annotation,
+          name = pb.name,
         )
       }
     }
@@ -127,11 +127,21 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
 
   val nextGroupId: Int get() = groupManager.nextGroupId
 
-  fun createGroup(annotation: String): Int {
-    val id = groupManager.createGroup(annotation.ifBlank { "Group ${groupManager.nextGroupId}" })
+  fun createGroup(name: String): Int {
+    val id = groupManager.createGroup(name.ifBlank { "Group ${groupManager.nextGroupId}" })
     breakpointDefManager.initGroup(id)
     syncState()
     return id
+  }
+
+  fun renameGroup(groupId: Int, name: String) {
+    groupManager.renameGroup(groupId, name)
+    syncState()
+  }
+
+  fun renameBreakpoint(def: BreakpointDef, name: String) {
+    breakpointDefManager.upsertBreakpointInGroup(def.groupId, def.copy(name = name.trim()))
+    syncState()
   }
 
   fun getGroups(): List<GroupData> = _groups.value

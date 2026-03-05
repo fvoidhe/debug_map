@@ -14,7 +14,7 @@ data class BreakpointDef(
   val typeId: String = "java-line",
   val condition: String? = null,
   val logExpression: String? = null,
-  val annotation: String? = null,
+  val name: String? = null,
 ) : Comparable<BreakpointDef> {
 
   override fun compareTo(other: BreakpointDef): Int =

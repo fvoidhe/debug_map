@@ -23,13 +23,13 @@ class BreakpointDefManager {
 
   /**
    * Adds or replaces a breakpoint definition in [groupId].
-   * Uniqueness key is (fileUrl, line); [annotation] from the existing entry is preserved.
+   * Uniqueness key is (fileUrl, line). If [def.name] is null, the existing entry's name is preserved.
    */
   fun upsertBreakpointInGroup(groupId: Int, def: BreakpointDef): Boolean = lock.withLock {
     val set = groupBreakpoints.getOrPut(groupId) { TreeSet() }
     val existing = set.floor(def)?.takeIf { it.fileUrl == def.fileUrl && it.line == def.line }
     if (existing != null) set.remove(existing)
-    val storedDef = if (existing != null) def.copy(annotation = existing.annotation) else def
+    val storedDef = if (existing != null && def.name == null) def.copy(name = existing.name) else def
     set.add(storedDef).also {
       fileMap.getOrPut(storedDef.fileUrl) { mutableSetOf() }.apply {
         removeIf { it.groupId == groupId && it.line == storedDef.line }
@@ -45,7 +45,7 @@ class BreakpointDefManager {
   }
 
   /**
-   * Moves [def] to [newLine] within its group atomically, preserving [annotation].
+   * Moves [def] to [newLine] within its group atomically, preserving [name].
    * Equivalent to remove(oldLine) + upsert(newLine) but in a single lock acquisition.
    */
   fun moveBreakpointLine(def: BreakpointDef, newLine: Int): Unit = lock.withLock {

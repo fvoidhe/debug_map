@@ -7,13 +7,13 @@ class PersistedBreakpoint {
   var typeId: String = "java-line"
   var condition: String? = null
   var logExpression: String? = null
-  var annotation: String? = null
+  var name: String? = null
 }
 
 /** XML-serializable group bean (includes its breakpoints). */
 class PersistedGroup {
   var id: Int = 0
-  var annotation: String = ""
+  var name: String = ""
   var createdAt: Long = 0L
   var lastActivatedAt: Long = 0L
   var breakpoints: MutableList<PersistedBreakpoint> = mutableListOf()

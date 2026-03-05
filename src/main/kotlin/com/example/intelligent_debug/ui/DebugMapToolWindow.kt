@@ -1,13 +1,17 @@
 package com.example.intelligent_debug.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -17,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Alignment.Companion.BottomEnd
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,7 +41,29 @@ import org.jetbrains.jewel.ui.component.Icon
 import org.jetbrains.jewel.ui.component.IconActionButton
 import org.jetbrains.jewel.ui.component.LazyTree
 import org.jetbrains.jewel.ui.component.Text
+import org.jetbrains.jewel.ui.icon.IntelliJIconKey
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
+
+private val COLOR_ACTIVE = Color(0xFFFF6B6B.toInt())
+private val COLOR_INACTIVE = Color(0xFF808080.toInt())
+
+private data class BreakpointIcons(val normal: IntelliJIconKey, val noSuspend: IntelliJIconKey)
+
+private val BREAKPOINT_ICON_MAP: Map<String, BreakpointIcons> = mapOf(
+  "java-line"            to BreakpointIcons(AllIconsKeys.Debugger.Db_set_breakpoint,    AllIconsKeys.Debugger.Db_no_suspend_breakpoint),
+  "java-method"          to BreakpointIcons(AllIconsKeys.Debugger.Db_method_breakpoint, AllIconsKeys.Debugger.Db_no_suspend_method_breakpoint),
+  "java-wildcard-method" to BreakpointIcons(AllIconsKeys.Debugger.Db_method_breakpoint, AllIconsKeys.Debugger.Db_no_suspend_method_breakpoint),
+  "java-field"           to BreakpointIcons(AllIconsKeys.Debugger.Db_field_breakpoint,  AllIconsKeys.Debugger.Db_no_suspend_field_breakpoint),
+  "java-collection"      to BreakpointIcons(AllIconsKeys.Debugger.Db_field_breakpoint,  AllIconsKeys.Debugger.Db_no_suspend_field_breakpoint),
+  "kotlin-line"          to BreakpointIcons(AllIconsKeys.Debugger.Db_set_breakpoint,    AllIconsKeys.Debugger.Db_no_suspend_breakpoint),
+  "kotlin-function"      to BreakpointIcons(AllIconsKeys.Debugger.Db_method_breakpoint, AllIconsKeys.Debugger.Db_no_suspend_method_breakpoint),
+  "kotlin-field"         to BreakpointIcons(AllIconsKeys.Debugger.Db_field_breakpoint,  AllIconsKeys.Debugger.Db_no_suspend_field_breakpoint),
+)
+
+private val DEFAULT_BREAKPOINT_ICONS = BreakpointIcons(
+  normal = AllIconsKeys.Debugger.Db_set_breakpoint,
+  noSuspend = AllIconsKeys.Debugger.Db_no_suspend_breakpoint,
+)
 
 @OptIn(ExperimentalJewelApi::class)
 @Composable
@@ -43,14 +71,14 @@ internal fun DebugMapToolWindow(project: Project) {
   val service = remember(project) { DebugMapService.getInstance(project) }
   val groups by service.groups.collectAsState()
   val activeGroupId by service.activeGroupId.collectAsState()
-  var selectedGroupId by remember { mutableStateOf<Int?>(null) }
+  var selectedNode by remember { mutableStateOf<DebugMapNode?>(null) }
   val treeState = rememberTreeState()
 
   val tree = remember(groups, activeGroupId) {
     buildTree {
       for (group in groups) {
         addNode(
-          data = DebugMapNode.Group(group.id, group.annotation, group.id == activeGroupId),
+          data = DebugMapNode.Group(group.id, group.name, group.id == activeGroupId, group.breakpoints.size),
           id = "group-${group.id}",
         ) {
           for (bp in group.breakpoints) {
@@ -83,20 +111,42 @@ internal fun DebugMapToolWindow(project: Project) {
       IconActionButton(
         key = AllIconsKeys.General.Remove,
         contentDescription = "Delete Group",
-        enabled = selectedGroupId != null && selectedGroupId != activeGroupId,
+        enabled = selectedNode is DebugMapNode.Group && (selectedNode as DebugMapNode.Group).id != activeGroupId,
         onClick = {
-          val gId = selectedGroupId ?: return@IconActionButton
+          val gId = (selectedNode as? DebugMapNode.Group)?.id ?: return@IconActionButton
           WriteAction.run<Exception> { service.deleteGroup(gId) }
-          selectedGroupId = null
+          selectedNode = null
         },
       )
       IconActionButton(
         key = AllIconsKeys.Actions.CheckOut,
         contentDescription = "Checkout Group",
-        enabled = selectedGroupId != null && selectedGroupId != activeGroupId,
+        enabled = selectedNode is DebugMapNode.Group && (selectedNode as DebugMapNode.Group).id != activeGroupId,
         onClick = {
-          val gId = selectedGroupId ?: return@IconActionButton
+          val gId = (selectedNode as? DebugMapNode.Group)?.id ?: return@IconActionButton
           WriteAction.run<Exception> { service.checkout(gId) }
+        },
+      )
+      IconActionButton(
+        key = AllIconsKeys.Actions.Edit,
+        contentDescription = "Rename",
+        enabled = selectedNode != null,
+        onClick = {
+          when (val node = selectedNode) {
+            is DebugMapNode.Group -> {
+              val current = groups.find { it.id == node.id }?.name ?: return@IconActionButton
+              val name = Messages.showInputDialog(project, "Group name:", "Rename Group", null, current, null)
+                         ?: return@IconActionButton
+              if (name.isNotBlank()) service.renameGroup(node.id, name)
+            }
+            is DebugMapNode.BreakpointItem -> {
+              val current = node.def.name ?: ""
+              val name = Messages.showInputDialog(project, "Breakpoint name:", "Rename Breakpoint", null, current, null)
+                         ?: return@IconActionButton
+              service.renameBreakpoint(node.def, name)
+            }
+            null -> return@IconActionButton
+          }
         },
       )
     }
@@ -108,12 +158,7 @@ internal fun DebugMapToolWindow(project: Project) {
       modifier = Modifier.fillMaxSize(),
       treeState = treeState,
       onSelectionChange = { elements ->
-        selectedGroupId = elements.firstOrNull()?.let { elem ->
-          when (val node = elem.data) {
-            is DebugMapNode.Group -> node.id
-            is DebugMapNode.BreakpointItem -> node.def.groupId
-          }
-        }
+        selectedNode = elements.firstOrNull()?.data
       },
       onElementDoubleClick = { element ->
         val node = element.data
@@ -136,10 +181,16 @@ internal fun DebugMapToolWindow(project: Project) {
 @Composable
 private fun GroupRow(node: DebugMapNode.Group) {
   Row(
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(6.dp),
   ) {
+    Box(
+      modifier = Modifier
+        .size(16.dp)
+        .clip(CircleShape)
+        .background(if (node.isActive) COLOR_ACTIVE else COLOR_INACTIVE),
+    )
     Text(
       text = node.name,
       fontWeight = if (node.isActive) FontWeight.Bold else FontWeight.Normal,
@@ -147,21 +198,19 @@ private fun GroupRow(node: DebugMapNode.Group) {
       overflow = TextOverflow.Ellipsis,
       modifier = Modifier.weight(1f),
     )
-    if (node.isActive) {
-      Text(text = "●")
-    }
+    Text(
+      text = node.breakpointCount.toString(),
+      color = COLOR_INACTIVE,
+      maxLines = 1,
+    )
   }
 }
 
 @Composable
 private fun BreakpointRow(node: DebugMapNode.BreakpointItem) {
   val def = node.def
-  val baseIconKey = when {
-    !def.logExpression.isNullOrBlank() -> AllIconsKeys.Debugger.Db_no_suspend_breakpoint
-    def.typeId == "java-method" -> AllIconsKeys.Debugger.Db_method_breakpoint
-    def.typeId == "java-field" -> AllIconsKeys.Debugger.Db_field_breakpoint
-    else -> AllIconsKeys.Debugger.Db_set_breakpoint
-  }
+  val icons = BREAKPOINT_ICON_MAP.getOrDefault(def.typeId, DEFAULT_BREAKPOINT_ICONS)
+  val baseIconKey = if (!def.logExpression.isNullOrBlank()) icons.noSuspend else icons.normal
   val hasCondition = !def.condition.isNullOrBlank()
   val fileName = def.fileUrl.substringAfterLast('/')
   val lineNumber = def.line + 1
@@ -170,21 +219,40 @@ private fun BreakpointRow(node: DebugMapNode.BreakpointItem) {
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Box(modifier = Modifier.size(12.dp)) {
-      Icon(key = baseIconKey, contentDescription = null, modifier = Modifier.size(12.dp))
+    // Reserve space equivalent to the tree chevron (16dp icon + 2dp gap) so that
+    // breakpoint content aligns with group content, matching standard IntelliJ tree behavior.
+    Spacer(Modifier.width(18.dp))
+    Box(modifier = Modifier.size(16.dp)) {
+      Icon(key = baseIconKey, contentDescription = null, modifier = Modifier.size(16.dp))
       if (hasCondition) {
         Icon(
           key = AllIconsKeys.Debugger.Question_badge,
           contentDescription = null,
-          modifier = Modifier.size(7.dp).align(BottomEnd),
+          modifier = Modifier.size(7.dp, 9.dp).align(BottomEnd),
         )
       }
     }
-    Text(
-      text = "$fileName:$lineNumber",
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-      modifier = Modifier.weight(1f),
-    )
+    if (!def.name.isNullOrBlank()) {
+      Text(
+        text = def.name,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Text(
+        text = "$fileName:$lineNumber",
+        color = COLOR_INACTIVE,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+      )
+    }
+    else {
+      Text(
+        text = "$fileName:$lineNumber",
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+      )
+    }
   }
 }
