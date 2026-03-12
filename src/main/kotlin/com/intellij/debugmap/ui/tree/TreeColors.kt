@@ -38,9 +38,10 @@ internal data class ResolvedBreakpointIcon(
   val badge: IntelliJIconKey? = null,
 )
 
-internal fun resolveBreakpointIcon(def: BreakpointDef): ResolvedBreakpointIcon {
+internal fun resolveBreakpointIcon(def: BreakpointDef, isInActiveGroup: Boolean = true): ResolvedBreakpointIcon {
   val icons = BREAKPOINT_ICON_MAP.getOrDefault(def.typeId, DEFAULT_BREAKPOINT_ICONS)
   val base = when {
+    !isInActiveGroup -> icons.disabled
     def.enabled == false -> icons.disabled
     def.masterFileUrl != null -> icons.dependent
     !def.logExpression.isNullOrBlank() || def.suspendPolicy == "NONE" -> icons.noSuspend

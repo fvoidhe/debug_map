@@ -20,7 +20,7 @@ import kotlinx.serialization.Serializable
 
 class BookmarkToolset : McpToolset {
 
-  @McpTool(name = "bookmark_list")
+  @McpTool(name = "debug_bookmark_list")
   @McpDescription("""
         |Lists bookmarks in the project, optionally filtered by group and/or path substring.
     """)
@@ -58,7 +58,7 @@ class BookmarkToolset : McpToolset {
     return BookmarkListResult(bookmarks = items, total = items.size)
   }
 
-  @McpTool(name = "bookmark_upsert")
+  @McpTool(name = "debug_bookmark_upsert")
   @McpDescription("""
         |Creates or updates a line bookmark at the specified file and line within a group.
         |If the bookmark already exists in the group, updates its description and mnemonic.
@@ -111,7 +111,7 @@ class BookmarkToolset : McpToolset {
     return BookmarkResult(path = path, line = line, status = "created")
   }
 
-  @McpTool(name = "bookmark_remove")
+  @McpTool(name = "debug_bookmark_remove")
   @McpDescription("""
         |Removes the line bookmark at the specified file and line.
         |If group is specified, removes only from that group; otherwise removes from the active group.

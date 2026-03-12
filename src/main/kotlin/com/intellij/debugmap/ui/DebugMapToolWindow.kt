@@ -23,6 +23,11 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.intellij.debugmap.DebugMapBundle
 import com.intellij.debugmap.DebugMapService
@@ -112,7 +117,7 @@ internal fun DebugMapToolWindow(project: Project) {
             val index = recentBreakpoints.indexOfFirst { it.groupId == bp.groupId && it.fileUrl == bp.fileUrl && it.line == bp.line && it.column == bp.column }
             val recentIndex = if (index != -1) index else null
             addLeaf(
-              data = DebugMapNode.BreakpointItem(bp, recentIndex),
+              data = DebugMapNode.BreakpointItem(bp, recentIndex, group.id == activeGroupId),
               id = "bp-${group.id}-${bp.fileUrl}-${bp.line}-${bp.column}",
             )
           }
@@ -171,7 +176,28 @@ internal fun DebugMapToolWindow(project: Project) {
 
     LazyTree(
       tree = tree,
-      modifier = Modifier.fillMaxSize(),
+      modifier = Modifier.fillMaxSize().onKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+        when (event.key) {
+          Key.F2 -> {
+            if (isSingle && selectionKind != SelectionKind.NONE) {
+              doRename(selectedNodes.firstOrNull(), project, service, groups)
+              true
+            } else false
+          }
+          Key.Delete, Key.Backspace -> {
+            val canDelete = selectionKind != SelectionKind.NONE &&
+                            !(selectionKind == SelectionKind.GROUPS &&
+                              selectedNodes.any { (it as DebugMapNode.Group).id == activeGroupId })
+            if (canDelete) {
+              doDelete(selectedNodes, selectionKind, service, project, activeGroupId)
+              selectedNodes = emptyList()
+              true
+            } else false
+          }
+          else -> false
+        }
+      },
       treeState = treeState,
       style = treeStyle,
       onSelectionChange = { elements ->
@@ -235,6 +261,7 @@ internal fun DebugMapToolWindow(project: Project) {
               nodes = effectiveNodes.filterIsInstance<DebugMapNode.BookmarkItem>(),
               project = project,
               service = service,
+              activeGroupId = activeGroupId,
               offset = contextMenuOffset,
               onDismiss = { showContextMenu = false },
             )
@@ -242,6 +269,7 @@ internal fun DebugMapToolWindow(project: Project) {
               nodes = effectiveNodes.filterIsInstance<DebugMapNode.BreakpointItem>(),
               project = project,
               service = service,
+              activeGroupId = activeGroupId,
               offset = contextMenuOffset,
               onDismiss = { showContextMenu = false },
             )

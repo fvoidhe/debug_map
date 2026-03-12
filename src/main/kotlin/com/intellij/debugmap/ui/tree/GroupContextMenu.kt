@@ -1,6 +1,7 @@
 package com.intellij.debugmap.ui.tree
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.window.rememberPopupPositionProviderAtPosition
@@ -29,6 +30,8 @@ internal fun GroupContextMenu(
   val isSingle = nodes.size == 1
   val node = nodes.firstOrNull() ?: return
   val deletable = nodes.filter { it.id != activeGroupId }
+  val renameKeybinding = remember { shortcutHint("Tree-startEditing") }
+  val deleteKeybinding = remember { shortcutHint("\$Delete") }
 
   PopupMenu(
     onDismissRequest = { onDismiss(); true },
@@ -43,12 +46,13 @@ internal fun GroupContextMenu(
           onDismiss()
           WriteAction.run<Exception> { service.checkout(node.id) }
         },
-      ) { Text(DebugMapBundle.message("action.checkout")) }
+      ) { Text(DebugMapBundle.message("action.checkout.group")) }
     }
     if (isSingle) {
       selectableItem(
         selected = false,
         iconKey = AllIconsKeys.Actions.Edit,
+        keybinding = renameKeybinding,
         onClick = {
           onDismiss()
           val current = groups.find { it.id == node.id }?.name ?: return@selectableItem
@@ -60,12 +64,13 @@ internal fun GroupContextMenu(
           ) ?: return@selectableItem
           if (name.isNotBlank()) service.renameGroup(node.id, name)
         },
-      ) { Text(DebugMapBundle.message("action.rename")) }
+      ) { Text(DebugMapBundle.message("action.rename.group")) }
     }
     if (deletable.isNotEmpty()) {
       selectableItem(
         selected = false,
         iconKey = AllIconsKeys.General.Remove,
+        keybinding = deleteKeybinding,
         onClick = {
           onDismiss()
           val anyNonEmpty = deletable.any { it.bookmarkCount > 0 || it.breakpointCount > 0 }
@@ -82,7 +87,10 @@ internal fun GroupContextMenu(
             deletable.forEach { service.deleteGroup(it.id) }
           }
         },
-      ) { Text(DebugMapBundle.message("action.delete")) }
+      ) {
+        val key = if (deletable.size == 1) "action.delete.group" else "action.delete.groups"
+        Text(DebugMapBundle.message(key))
+      }
     }
   }
 }
