@@ -4,12 +4,20 @@ package com.intellij.debugmap.model
 class PersistedBreakpoint {
   var fileUrl: String = ""
   var line: Int = 0
+
   /** Zero-based column; 0 = whole-line, positive = inline (lambda) breakpoint. */
   var column: Int = 0
   var typeId: String = "java-line"
   var condition: String? = null
   var logExpression: String? = null
   var name: String? = null
+  var enabled: Boolean? = null
+  var logMessage: Boolean? = null
+  /** "ALL", "THREAD", or "NONE". null = IDE default. */
+  var suspendPolicy: String? = null
+  var masterFileUrl: String? = null
+  var masterLine: Int? = null
+  var masterLeaveEnabled: Boolean? = null
 }
 
 /** XML-serializable bookmark bean. */

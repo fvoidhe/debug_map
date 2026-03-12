@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 @Service(Service.Level.PROJECT)
-@State(name = "DebugMap", storages = [Storage(StoragePathMacros.WORKSPACE_FILE)])
+@State(name = "DebugMap", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
 class DebugMapService(val project: Project) : PersistentStateComponent<PersistedState>, Disposable {
 
   private val _groups = MutableStateFlow<List<GroupData>>(emptyList())
@@ -35,12 +35,18 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   private val _activeGroupId = MutableStateFlow<Int?>(null)
   val activeGroupId: StateFlow<Int?> = _activeGroupId.asStateFlow()
 
+  private val _recentBreakpoints = MutableStateFlow<List<BreakpointDef>>(emptyList())
+
+  @Volatile
+  private var isSessionStop = false
+  val recentBreakpoints: StateFlow<List<BreakpointDef>> = _recentBreakpoints.asStateFlow()
+
   companion object {
     fun getInstance(project: Project): DebugMapService =
       project.getService(DebugMapService::class.java)
   }
 
-  private val breakpointManager = BreakpointManager()
+  internal val breakpointManager = BreakpointManager()
   internal val ideManager = BreakpointIdeManager(project)
   private val markerTracker = BreakpointMarkerTracker(this)
 
@@ -58,6 +64,26 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   internal fun consumeSuppressedBookmarkRemoval(fileUrl: String, line: Int): Boolean =
     suppressedBookmarkRemovals.remove(fileUrl to line)
 
+
+  fun addRecentBreakpoint(def: BreakpointDef) {
+    val current = _recentBreakpoints.value.toMutableList()
+    if (isSessionStop) {
+      isSessionStop = false
+      current.clear()
+    }
+    else {
+      current.removeAll { it.groupId == def.groupId && it.fileUrl == def.fileUrl && it.line == def.line && it.column == def.column }
+    }
+    current.add(0, def)
+    if (current.size > 10) {
+      current.removeAt(current.size - 1)
+    }
+    _recentBreakpoints.value = current
+  }
+
+  fun stopRecentBreakpoints() {
+    isSessionStop = true
+  }
 
   override fun dispose() {
   }
@@ -94,6 +120,12 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
             pb.condition = def.condition
             pb.logExpression = def.logExpression
             pb.name = def.name?.ifEmpty { null }
+            pb.enabled = def.enabled
+            pb.logMessage = def.logMessage
+            pb.suspendPolicy = def.suspendPolicy
+            pb.masterFileUrl = def.masterFileUrl
+            pb.masterLine = def.masterLine
+            pb.masterLeaveEnabled = def.masterLeaveEnabled
           }
         }.toMutableList()
         pg.bookmarks = group.bookmarks.map { def ->
@@ -128,6 +160,12 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
             condition = pb.condition,
             logExpression = pb.logExpression,
             name = pb.name,
+            enabled = pb.enabled,
+            logMessage = pb.logMessage,
+            suspendPolicy = pb.suspendPolicy,
+            masterFileUrl = pb.masterFileUrl,
+            masterLine = pb.masterLine,
+            masterLeaveEnabled = pb.masterLeaveEnabled,
           )
         },
         bookmarks = pg.bookmarks.map { pb ->
@@ -246,6 +284,24 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
   fun removeBookmarkByIde(groupId: Int, fileUrl: String, line: Int) {
     breakpointManager.removeBookmarkFromGroup(groupId, fileUrl, line)
+    syncState()
+  }
+
+  /** Called from the tool window or MCP: updates in-memory state, pushes to IDE if active, and notifies tool windows. Must be called within a writeAction. */
+  fun addBreakpointByToolWindow(groupId: Int, def: BreakpointDef) {
+    breakpointManager.upsertBreakpointInGroup(groupId, def)
+    if (groupId == breakpointManager.activeGroupId) {
+      ideManager.addBreakpointDefs(listOf(def))
+    }
+    syncState()
+  }
+
+  /** Called from the tool window or MCP: updates in-memory state, pushes to IDE if active, and notifies tool windows. */
+  fun addBookmarkByToolWindow(groupId: Int, def: BookmarkDef) {
+    breakpointManager.upsertBookmarkInGroup(groupId, def)
+    if (groupId == breakpointManager.activeGroupId) {
+      ideManager.addBookmarkDefs(listOf(def))
+    }
     syncState()
   }
 

@@ -22,9 +22,7 @@ import org.jetbrains.jewel.ui.icons.AllIconsKeys
 @Composable
 internal fun BreakpointRow(node: DebugMapNode.BreakpointItem) {
   val def = node.def
-  val icons = BREAKPOINT_ICON_MAP.getOrDefault(def.typeId, DEFAULT_BREAKPOINT_ICONS)
-  val baseIconKey = if (!def.logExpression.isNullOrBlank()) icons.noSuspend else icons.normal
-  val hasCondition = !def.condition.isNullOrBlank()
+  val resolved = resolveBreakpointIcon(def)
   val fileName = def.fileUrl.substringAfterLast('/')
   val position = if (def.column > 0) "${def.line + 1}:${def.column}" else "${def.line + 1}"
   Row(
@@ -32,14 +30,26 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem) {
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    // Reserve space equivalent to the tree chevron (16dp icon + 2dp gap) so that
-    // breakpoint content aligns with group content, matching standard IntelliJ tree behavior.
-    Spacer(Modifier.width(18.dp))
+    if (node.recentIndex != null) {
+      Box(modifier = Modifier.width(18.dp), contentAlignment = Alignment.CenterStart) {
+        if (node.recentIndex == 0) {
+          Icon(key = AllIconsKeys.Debugger.ThreadCurrent, contentDescription = "Current", modifier = Modifier.size(16.dp))
+        } else {
+          Text(text = "${node.recentIndex}", color = COLOR_INACTIVE)
+        }
+      }
+    }
+ else {
+      // Reserve space equivalent to the tree chevron (16dp icon + 2dp gap) so that
+      // breakpoint content aligns with group content, matching standard IntelliJ tree behavior.
+      Spacer(Modifier.width(18.dp))
+    }
+    
     Box(modifier = Modifier.size(16.dp)) {
-      Icon(key = baseIconKey, contentDescription = null, modifier = Modifier.size(16.dp))
-      if (hasCondition) {
+      Icon(key = resolved.base, contentDescription = null, modifier = Modifier.size(16.dp))
+      if (resolved.badge != null) {
         Icon(
-          key = AllIconsKeys.Debugger.Question_badge,
+          key = resolved.badge,
           contentDescription = null,
           modifier = Modifier.size(7.dp, 9.dp).align(BottomEnd),
         )

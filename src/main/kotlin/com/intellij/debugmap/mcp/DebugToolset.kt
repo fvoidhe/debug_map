@@ -2,7 +2,8 @@
 
 package com.intellij.debugmap.mcp
 
-import com.intellij.debugmap.manager.BreakpointIdeManager
+import com.intellij.debugmap.DebugMapService
+import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.mcpserver.McpToolset
 import com.intellij.mcpserver.annotations.McpDescription
 import com.intellij.mcpserver.annotations.McpTool
@@ -10,114 +11,86 @@ import com.intellij.mcpserver.mcpFail
 import com.intellij.mcpserver.project
 import com.intellij.mcpserver.reportToolActivity
 import com.intellij.mcpserver.toolsets.Constants
-import com.intellij.mcpserver.util.relativizeIfPossible
 import com.intellij.mcpserver.util.resolveInProject
-import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.xdebugger.breakpoints.SuspendPolicy
-import com.intellij.xdebugger.breakpoints.XLineBreakpoint
-import java.nio.file.Path
+import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.Serializable
 
 class DebugToolset : McpToolset {
 
-  @McpTool(name = "debug_set_breakpoint")
+  @McpTool(name = "debug_add_breakpoint")
   @McpDescription("""
-        |Sets a line breakpoint at the specified file and line.
-        |If a breakpoint already exists at that location, reports it without creating a duplicate.
-        |
-        |The breakpoint appears immediately as a red dot in the editor gutter.
-        |It will be hit during the next debug session when execution reaches that line.
+        |Creates a new line breakpoint at the specified file and line.
+        |Fails if a breakpoint already exists at that location — use debug_update_breakpoint to modify an existing one.
     """)
-  suspend fun set_breakpoint(
+  suspend fun add_breakpoint(
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String,
-    @McpDescription("1-based line number where the breakpoint should be set")
+    @McpDescription("1-based line number of the breakpoint")
     line: Int,
-    @McpDescription("Source text of the line where the breakpoint should be set")
+    @McpDescription("Source text of the line — validated against the file to catch stale references")
     content: String,
+    @McpDescription("Human-readable label for this breakpoint")
+    description: String,
+    @McpDescription("Breakpoint group name. Defaults to the currently active group if omitted.")
+    group: String,
   ): BreakpointResult {
-    currentCoroutineContext().reportToolActivity("Setting breakpoint at $path:$line")
+    currentCoroutineContext().reportToolActivity("Adding breakpoint at $path:$line")
     val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
 
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
     val lineZeroBased = line - 1
-    val ideManager = BreakpointIdeManager(project)
+    val activeGroupId = resolveGroupId(service, group)
 
-    val alreadyExists = readAction {
-      val actual = lineContent(file, lineZeroBased)
-      if (actual == null || actual.trim() != content.trim()) {
-        mcpFail("Line $line contains '${actual ?: ""}', not '${content}'. Re-read the file and pass the exact source text of the target line.")
-      }
-
-      if (ideManager.findLineBreakpoint(file.url, lineZeroBased) != null) return@readAction true
-
-      if (!ideManager.canPutAt(file, lineZeroBased)) {
-        mcpFail("Cannot set breakpoint at $path:$line — not a valid breakpoint location (no executable code on this line)")
-      }
-
-      false
+    val actual = lineContent(file, lineZeroBased)
+    if (actual == null || actual.trim() != content.trim()) {
+      mcpFail("Line $line contains '${actual ?: ""}', not '$content'. Re-read the file and pass the exact source text of the target line.")
     }
 
-    if (alreadyExists) {
-      return BreakpointResult(path = path, line = line, status = "already_exists")
+    val existing = service.getGroupBreakpoints(activeGroupId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
+    if (existing != null) mcpFail("A breakpoint already exists at $path:$line. Use debug_update_breakpoint to modify it.")
+
+    if (!service.ideManager.canPutAt(file, lineZeroBased)) {
+      mcpFail("Cannot set breakpoint at $path:$line — not a valid breakpoint location (no executable code on this line)")
     }
 
-    writeAction {
-      ideManager.addLineBreakpoint(file, lineZeroBased)
-    }
+    service.addBreakpointByToolWindow(activeGroupId, BreakpointDef(
+      groupId = activeGroupId,
+      fileUrl = file.url,
+      line = lineZeroBased,
+      name = description.takeIf { it.isNotBlank() },
+    ))
 
     return BreakpointResult(path = path, line = line, status = "created")
   }
 
-  @McpTool(name = "debug_remove_breakpoint")
-  @McpDescription("""
-        |Removes the breakpoint at the specified file and line.
-        |If no breakpoint exists at that location, reports accordingly.
-    """)
-  suspend fun remove_breakpoint(
-    @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
-    path: String,
-    @McpDescription("1-based line number of the breakpoint to remove")
-    line: Int,
-  ): BreakpointResult {
-    currentCoroutineContext().reportToolActivity("Removing breakpoint at $path:$line")
-    val project = currentCoroutineContext().project
-
-    val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
-               ?: mcpFail("File not found: $path")
-
-    val lineZeroBased = line - 1
-    val ideManager = BreakpointIdeManager(project)
-
-    val target = readAction {
-      ideManager.findLineBreakpoint(file.url, lineZeroBased)
-    } ?: return BreakpointResult(path = path, line = line, status = "not_found")
-
-    writeAction {
-      ideManager.removeBreakpoint(target)
-    }
-
-    return BreakpointResult(path = path, line = line, status = "removed")
-  }
-
   @McpTool(name = "debug_update_breakpoint")
   @McpDescription("""
-        |Updates properties of an existing line breakpoint at the specified location.
+        |Updates properties of an existing line breakpoint identified by file and line.
         |Only the parameters you provide are changed; omitted parameters keep their current value.
+        |
+        |Dependency management:
+        | - Provide dependsOnPath + dependsOnLine to make this breakpoint fire only after a master breakpoint has been hit.
+        | - Pass dependsOnPath as an empty string to clear an existing dependency.
+        | - Omit dependsOnPath entirely to leave the dependency unchanged.
     """)
   suspend fun update_breakpoint(
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String,
-    @McpDescription("1-based line number of the breakpoint to update")
+    @McpDescription("1-based line number of the breakpoint")
     line: Int,
+    @McpDescription("Breakpoint group name. Defaults to the currently active group if omitted.")
+    group: String? = null,
     @McpDescription("Enable or disable the breakpoint")
     enabled: Boolean? = null,
+    @McpDescription("Human-readable label for this breakpoint. Pass empty string to clear.")
+    description: String? = null,
     @McpDescription("Condition expression that must evaluate to true for the breakpoint to fire. Pass empty string to clear.")
     condition: String? = null,
     @McpDescription("Expression to evaluate and log to the console when the breakpoint is hit. Pass empty string to clear.")
@@ -128,21 +101,30 @@ class DebugToolset : McpToolset {
     logStack: Boolean? = null,
     @McpDescription("Suspend policy: ALL, THREAD, or NONE.")
     suspendPolicy: String? = null,
+    @McpDescription("Path of the master breakpoint. Provide to set a dependency, pass empty string to clear, omit to leave unchanged.")
+    dependsOnPath: String? = null,
+    @McpDescription("1-based line number of the master breakpoint. Required when dependsOnPath is non-empty.")
+    dependsOnLine: Int? = null,
+    @McpDescription("If true (default), this breakpoint stays permanently enabled after master fires. If false, fires once then disables itself.")
+    dependencyLeaveEnabled: Boolean = true,
   ): BreakpointResult {
     currentCoroutineContext().reportToolActivity("Updating breakpoint at $path:$line")
     val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
 
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
     val lineZeroBased = line - 1
+    val activeGroupId = resolveGroupId(service, group)
 
-    val bp = readAction {
-      BreakpointIdeManager(project).findLineBreakpoint(file.url, lineZeroBased)
-    } ?: return BreakpointResult(path = path, line = line, status = "not_found")
+    service.getGroupBreakpoints(activeGroupId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
+    ?: mcpFail("No breakpoint found at $path:$line")
 
-    writeAction {
+    val bp = service.ideManager.findLineBreakpoint(file.url, lineZeroBased)
+    if (bp != null) {
       enabled?.let { bp.setEnabled(it) }
+      description?.let { (bp as? XBreakpointBase<*, *, *>)?.userDescription = it.ifBlank { null } }
       condition?.let { bp.setCondition(it.ifBlank { null }) }
       logExpression?.let { bp.setLogExpression(it.ifBlank { null }) }
       logMessage?.let { bp.setLogMessage(it) }
@@ -152,142 +134,138 @@ class DebugToolset : McpToolset {
                               "ALL" -> SuspendPolicy.ALL
                               "THREAD" -> SuspendPolicy.THREAD
                               "NONE" -> SuspendPolicy.NONE
-                              else -> mcpFail("Invalid suspend policy '${it}'. Valid values: ALL, THREAD, NONE")
+                              else -> mcpFail("Invalid suspend policy '$it'. Valid values: ALL, THREAD, NONE")
                             })
+      }
+
+      when {
+        dependsOnPath == null -> { /* leave unchanged */
+        }
+        dependsOnPath.isBlank() -> service.ideManager.clearMasterBreakpoint(bp)
+        else -> {
+          val masterFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(dependsOnPath))
+                           ?: mcpFail("Master file not found: $dependsOnPath")
+          val masterLine = dependsOnLine ?: mcpFail("dependsOnLine is required when dependsOnPath is provided")
+          val master = service.ideManager.findLineBreakpoint(masterFile.url, masterLine - 1)
+                       ?: mcpFail("Master breakpoint not found at $dependsOnPath:$masterLine")
+          service.ideManager.setMasterBreakpoint(bp, master, dependencyLeaveEnabled)
+        }
       }
     }
 
     return BreakpointResult(path = path, line = line, status = "updated")
   }
 
-  @McpTool(name = "debug_list_breakpoints")
+  @McpTool(name = "debug_remove_breakpoint")
   @McpDescription("""
-        |Lists all line breakpoints currently set in the project.
-        |Returns file path (relative to project root), 1-based line number, enabled state,
-        |condition expression, log expression, log-message flag, suspend policy,
-        |the source text of the breakpoint line, and any master-breakpoint dependency.
+        |Removes the breakpoint at the specified file and line.
+        |If group is specified, removes only from that group; otherwise removes from the active group.
+        |Reports not_found if no matching breakpoint exists.
     """)
-  suspend fun list_breakpoints(): BreakpointListResult {
-    currentCoroutineContext().reportToolActivity("Listing breakpoints")
-    val project = currentCoroutineContext().project
-
-    return readAction {
-      val ideManager = BreakpointIdeManager(project)
-      val projectPath = project.basePath?.let { Path.of(it) }
-
-      val items = ideManager.allLineBreakpoints().map { bp ->
-        val vf = VirtualFileManager.getInstance().findFileByUrl(bp.fileUrl)
-        val masterBp = ideManager.getMasterBreakpoint(bp)
-        val masterVf = masterBp?.let { VirtualFileManager.getInstance().findFileByUrl(it.fileUrl) }
-        BreakpointInfo(
-          path = if (vf != null && projectPath != null) projectPath.relativizeIfPossible(vf) else bp.presentableFilePath,
-          line = bp.line + 1,
-          enabled = bp.isEnabled,
-          condition = bp.conditionExpression?.expression?.takeIf { it.isNotBlank() },
-          logExpression = bp.logExpressionObject?.expression?.takeIf { it.isNotBlank() },
-          logMessage = bp.isLogMessage,
-          suspendPolicy = bp.suspendPolicy.name,
-          content = vf?.let { lineContent(it, bp.line) },
-          dependsOnPath = masterBp?.let {
-            if (masterVf != null && projectPath != null) projectPath.relativizeIfPossible(masterVf) else it.presentableFilePath
-          },
-          dependsOnLine = masterBp?.let { it.line + 1 },
-          dependencyLeaveEnabled = masterBp?.let { ideManager.isLeaveEnabled(bp) },
-        )
-      }
-
-      BreakpointListResult(breakpoints = items, total = items.size)
-    }
-  }
-
-  @McpTool(name = "debug_set_breakpoint_dependency")
-  @McpDescription("""
-        |Makes a line breakpoint (the "slave") inactive until another line breakpoint (the "master") has been hit.
-        |Both breakpoints must already exist.
-    """)
-  suspend fun set_breakpoint_dependency(
-    @McpDescription("Path of the slave breakpoint (the one that should only fire after the master)")
-    slavePath: String,
-    @McpDescription("1-based line number of the slave breakpoint")
-    slaveLine: Int,
-    @McpDescription("Path of the master breakpoint (the one that must be hit first)")
-    masterPath: String,
-    @McpDescription("1-based line number of the master breakpoint")
-    masterLine: Int,
-    @McpDescription("If true (default), slave stays permanently enabled after master fires. If false, slave fires once then disables itself.")
-    leaveEnabled: Boolean = true,
-  ): BreakpointDependencyResult {
-    currentCoroutineContext().reportToolActivity("Setting dependency: $slavePath:$slaveLine depends on $masterPath:$masterLine")
-    val project = currentCoroutineContext().project
-
-    val slaveFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(slavePath))
-                    ?: mcpFail("File not found: $slavePath")
-    val masterFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(masterPath))
-                     ?: mcpFail("File not found: $masterPath")
-
-    val ideManager = BreakpointIdeManager(project)
-
-    data class FoundBreakpoints(val slave: XLineBreakpoint<*>?, val master: XLineBreakpoint<*>?)
-
-    val found = readAction {
-      FoundBreakpoints(
-        slave = ideManager.findLineBreakpoint(slaveFile.url, slaveLine - 1),
-        master = ideManager.findLineBreakpoint(masterFile.url, masterLine - 1),
-      )
-    }
-
-    if (found.slave == null) {
-      return BreakpointDependencyResult(slavePath, slaveLine, masterPath, masterLine, "slave_not_found")
-    }
-    if (found.master == null) {
-      return BreakpointDependencyResult(slavePath, slaveLine, masterPath, masterLine, "master_not_found")
-    }
-
-    writeAction {
-      ideManager.setMasterBreakpoint(found.slave, found.master, leaveEnabled)
-    }
-
-    return BreakpointDependencyResult(slavePath, slaveLine, masterPath, masterLine, "set")
-  }
-
-  @McpTool(name = "debug_clear_breakpoint_dependency")
-  @McpDescription("""
-        |Removes the master-breakpoint dependency from a slave breakpoint so it fires unconditionally again.
-        |Has no effect if the breakpoint has no dependency set.
-    """)
-  suspend fun clear_breakpoint_dependency(
+  suspend fun remove_breakpoint(
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String,
-    @McpDescription("1-based line number of the slave breakpoint")
+    @McpDescription("1-based line number of the breakpoint to remove")
     line: Int,
-  ): BreakpointDependencyResult {
-    currentCoroutineContext().reportToolActivity("Clearing dependency from $path:$line")
+    @McpDescription("Breakpoint group name. Defaults to the currently active group if omitted.")
+    group: String? = null,
+  ): BreakpointResult {
+    currentCoroutineContext().reportToolActivity("Removing breakpoint at $path:$line")
     val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
 
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
-    val ideManager = BreakpointIdeManager(project)
+    val lineZeroBased = line - 1
+    val activeGroupId = resolveGroupId(service, group)
 
-    data class DepState(val bp: XLineBreakpoint<*>?, val hasDependency: Boolean)
+    val exists = service.getGroupBreakpoints(activeGroupId).any { it.fileUrl == file.url && it.line == lineZeroBased }
+    if (!exists) return BreakpointResult(path = path, line = line, status = "not_found")
 
-    val state = readAction {
-      val bp = ideManager.findLineBreakpoint(file.url, line - 1)
-      DepState(bp = bp, hasDependency = bp != null && ideManager.getMasterBreakpoint(bp) != null)
+    service.removeBreakpointByToolWindow(activeGroupId, file.url, lineZeroBased)
+
+    return BreakpointResult(path = path, line = line, status = "removed")
+  }
+
+  @McpTool(name = "debug_list_breakpoints")
+  @McpDescription("""
+        |Lists line breakpoints, optionally filtered by group and/or path substring.
+        |Returns file URL, 1-based line number, group name, and active flag.
+        |Also returns enabled state, condition, log expression, log-message flag, suspend policy, source content, and any master-breakpoint dependency.
+    """)
+  suspend fun list_breakpoints(
+    @McpDescription("Filter by group name. Omit to include all groups.")
+    group: String? = null,
+    @McpDescription("Filter by path substring. Omit to include all files.")
+    path: String? = null,
+  ): BreakpointListResult {
+    currentCoroutineContext().reportToolActivity("Listing breakpoints")
+    val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
+
+    val activeGroupId = service.getActiveGroupId()
+    val items = mutableListOf<BreakpointInfo>()
+
+    for (g in service.getGroups()) {
+      if (group != null && g.name != group) continue
+      val isActive = g.id == activeGroupId
+      for (def in g.breakpoints) {
+        if (path != null && !def.fileUrl.contains(path)) continue
+        val vf = VirtualFileManager.getInstance().findFileByUrl(def.fileUrl)
+        items.add(BreakpointInfo(
+          path = def.fileUrl,
+          line = def.line + 1,
+          group = g.name,
+          active = isActive,
+          enabled = def.enabled,
+          description = def.name?.takeIf { it.isNotBlank() },
+          condition = def.condition?.takeIf { it.isNotBlank() },
+          logExpression = def.logExpression?.takeIf { it.isNotBlank() },
+          logMessage = def.logMessage,
+          suspendPolicy = def.suspendPolicy,
+          content = vf?.let { lineContent(it, def.line) },
+          dependsOnPath = def.masterFileUrl,
+          dependsOnLine = def.masterLine?.let { it + 1 },
+          dependencyLeaveEnabled = def.masterLeaveEnabled,
+        ))
+      }
     }
 
-    if (state.bp == null) {
-      return BreakpointDependencyResult(path, line, null, null, "slave_not_found")
-    }
-    if (!state.hasDependency) {
-      return BreakpointDependencyResult(path, line, null, null, "no_dependency")
-    }
+    return BreakpointListResult(breakpoints = items, total = items.size)
+  }
 
-    writeAction {
-      ideManager.clearMasterBreakpoint(state.bp)
-    }
+  @McpTool(name = "debug_list_groups")
+  @McpDescription("""
+        |Lists all debug-map groups. Groups are shared between breakpoints and bookmarks.
+        |Returns each group's name, whether it is the active group, and a count of its breakpoints and bookmarks.
+    """)
+  suspend fun list_groups(): GroupListResult {
+    currentCoroutineContext().reportToolActivity("Listing groups")
+    val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
 
-    return BreakpointDependencyResult(path, line, null, null, "cleared")
+    val activeGroupId = service.getActiveGroupId()
+    val groups = service.getGroups().map { g ->
+      GroupInfo(
+        name = g.name,
+        active = g.id == activeGroupId,
+        breakpointCount = g.breakpoints.size,
+        bookmarkCount = g.bookmarks.size,
+      )
+    }
+    return GroupListResult(groups = groups, total = groups.size)
+  }
+
+  // ----- helpers -----
+
+  private fun resolveGroupId(service: DebugMapService, group: String?): Int {
+    return if (group != null) {
+      service.getGroupIdByName(group) ?: mcpFail("Breakpoint group not found: $group")
+    }
+    else {
+      service.getActiveGroupId() ?: mcpFail("No active group")
+    }
   }
 
   // ----- data classes -----
@@ -296,7 +274,7 @@ class DebugToolset : McpToolset {
   data class BreakpointResult(
     val path: String,
     val line: Int,
-    /** "created" | "already_exists" | "removed" | "not_found" | "updated" */
+    /** "created" | "updated" | "removed" | "not_found" */
     val status: String,
   )
 
@@ -304,12 +282,15 @@ class DebugToolset : McpToolset {
   data class BreakpointInfo(
     val path: String,
     val line: Int,
-    val enabled: Boolean,
+    val group: String,
+    val active: Boolean,
+    val enabled: Boolean? = null,
+    val description: String? = null,
     val condition: String? = null,
     val logExpression: String? = null,
-    val logMessage: Boolean,
+    val logMessage: Boolean? = null,
     /** "ALL" | "THREAD" | "NONE" */
-    val suspendPolicy: String,
+    val suspendPolicy: String? = null,
     val content: String? = null,
     val dependsOnPath: String? = null,
     val dependsOnLine: Int? = null,
@@ -323,12 +304,17 @@ class DebugToolset : McpToolset {
   )
 
   @Serializable
-  data class BreakpointDependencyResult(
-    val slavePath: String,
-    val slaveLine: Int,
-    val masterPath: String? = null,
-    val masterLine: Int? = null,
-    /** "set" | "cleared" | "slave_not_found" | "master_not_found" | "no_dependency" */
-    val status: String,
+  data class GroupInfo(
+    val name: String,
+    val active: Boolean,
+    val breakpointCount: Int,
+    val bookmarkCount: Int,
   )
+
+  @Serializable
+  data class GroupListResult(
+    val groups: List<GroupInfo>,
+    val total: Int,
+  )
+
 }

@@ -44,6 +44,8 @@
     </extensions>
 
     <projectListeners>
+        <listener class="com.intellij.debugmap.listener.DebugMapDebuggerManagerListener"
+                  topic="com.intellij.xdebugger.XDebuggerManagerListener"/>
         <listener class="com.intellij.debugmap.listener.DebugMapBreakpointListener"
                   topic="com.intellij.xdebugger.breakpoints.XBreakpointListener"/>
         <listener class="com.intellij.debugmap.listener.DebugMapBreakpointListener"

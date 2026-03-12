@@ -12,9 +12,11 @@ import com.intellij.ide.bookmark.LineBookmark
 import com.intellij.openapi.project.Project
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.debugmap.manager.column
+import com.intellij.xdebugger.XDebugSession
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointListener
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
+import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 
 /** Keeps [DebugMapService] in sync with IDE breakpoint and bookmark lifecycle events. */
@@ -58,16 +60,26 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
     service.upsertBreakpointByIde(activeGroupId, breakpoint.toDef(activeGroupId))
   }
 
-  private fun XLineBreakpoint<*>.toDef(groupId: Int) = BreakpointDef(
-    groupId = groupId,
-    fileUrl = fileUrl,
-    line = line,
-    column = column(service.ideManager),
-    typeId = type.id,
-    condition = conditionExpression?.expression,
-    logExpression = logExpressionObject?.expression,
-    name = (this as? XBreakpointBase<*, *, *>)?.getUserDescription(),
-  )
+
+  fun XLineBreakpoint<*>.toDef(groupId: Int): BreakpointDef {
+    val master = service.ideManager.getMasterBreakpoint(this)
+    return BreakpointDef(
+      groupId = groupId,
+      fileUrl = fileUrl,
+      line = line,
+      column = column(service.ideManager),
+      typeId = type.id,
+      condition = conditionExpression?.expression,
+      logExpression = logExpressionObject?.expression,
+      name = (this as? XBreakpointBase<*, *, *>)?.getUserDescription(),
+      enabled = isEnabled,
+      logMessage = isLogMessage,
+      suspendPolicy = suspendPolicy.name,
+      masterFileUrl = master?.fileUrl,
+      masterLine = master?.line,
+      masterLeaveEnabled = master?.let { service.ideManager.isLeaveEnabled(this) },
+    )
+  }
 
   // region BookmarksListener
 
