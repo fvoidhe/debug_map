@@ -31,10 +31,6 @@ class BreakpointManager {
     set(value) {
       lock.withLock {
         _activeGroupId = value
-        if (value != null && groupMap.containsKey(value)) {
-          groupOrder.remove(value)
-          groupOrder.addFirst(value)
-        }
       }
     }
 

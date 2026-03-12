@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.jvm") version "2.1.20"
     id("org.jetbrains.intellij.platform") version "2.10.2"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.1.20"
 }
 
 group = "com.example"
@@ -27,6 +28,8 @@ dependencies {
         composeUI()
 
     }
+
+    compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 }
 
 intellijPlatform {
