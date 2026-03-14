@@ -34,6 +34,7 @@ internal fun GroupContextMenu(
   val moveDownKeybinding = remember { shortcutHint("NextOccurence") }
   val renameKeybinding = remember { shortcutHint("Tree-startEditing") }
   val deleteKeybinding = remember { shortcutHint("\$Delete") }
+  val copyNameKeybinding = remember { shortcutHint("\$Copy") }
   val groupIndex = if (isSingle) groups.indexOfFirst { it.id == node.id } else -1
 
   PopupMenu(
@@ -72,6 +73,17 @@ internal fun GroupContextMenu(
           WriteAction.run<Exception> { service.checkout(node.id) }
         },
       ) { Text(DebugMapBundle.message("action.checkout.group")) }
+    }
+    if (isSingle) {
+      selectableItem(
+        selected = false,
+        iconKey = AllIconsKeys.Actions.Copy,
+        keybinding = copyNameKeybinding,
+        onClick = {
+          onDismiss()
+          copyToClipboard(node.name)
+        },
+      ) { Text(DebugMapBundle.message("action.copy.name")) }
     }
     if (isSingle) {
       selectableItem(

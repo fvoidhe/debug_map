@@ -1,15 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugmap.manager
 
-import com.intellij.debugmap.DebugMapService
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.ide.bookmark.BookmarkGroup
 import com.intellij.ide.bookmark.BookmarkProvider
 import com.intellij.ide.bookmark.BookmarksManager
 import com.intellij.ide.bookmark.LineBookmark
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
@@ -41,7 +43,7 @@ class BreakpointIdeManager(private val project: Project) {
 
   // ── Read operations ────────────────────────────────────────────────────────
 
-  fun buildReference(fileUrl: String, line: Int): String = ReadAction.compute<String, Exception> {
+  fun buildReference(fileUrl: String, line: Int): String = runReadActionBlocking {
     val vFile = VirtualFileManager.getInstance().findFileByUrl(fileUrl)
     val relativePath = if (vFile != null) {
       val index = ProjectRootManager.getInstance(project).fileIndex
@@ -110,7 +112,7 @@ class BreakpointIdeManager(private val project: Project) {
       bp
     }.executeSynchronously()
 
-  fun removeBreakpoint(bp: XLineBreakpoint<*>) = WriteAction.compute<Unit, Exception> {
+  suspend fun removeBreakpoint(bp: XLineBreakpoint<*>): Unit = writeAction {
     bpManager.removeBreakpoint(bp)
   }
 
@@ -122,7 +124,7 @@ class BreakpointIdeManager(private val project: Project) {
     group.setDescription(bookmark, name)
   }
 
-  fun renameGroup(oldName: String, newName: String) = WriteAction.compute<Unit, Exception> {
+  suspend fun renameGroup(oldName: String, newName: String): Unit = writeAction {
     BookmarksManager.getInstance(project)?.getGroup(oldName)?.name = newName
     (bpManager as? XBreakpointManagerImpl)?.defaultGroup = newName
   }
@@ -145,16 +147,21 @@ class BreakpointIdeManager(private val project: Project) {
         it.fileUrl == breakpointDef.fileUrl && it.line == breakpointDef.line
         && it.column(this) == breakpointDef.column
       }
-        ?.let { removeBreakpoint(it) }
+        ?.let { bpManager.removeBreakpoint(it) }
     }
   }
 
-  fun addBookmarkDefs(bookmarkDefs: List<BookmarkDef>) {
+  fun addBookmarkDefs(bookmarkDefs: List<BookmarkDef>, groupName: String? = null) {
     val manager = BookmarksManager.getInstance(project) ?: return
     val provider = bookmarkProvider ?: return
     for (def in bookmarkDefs) {
       val bookmark = provider.createBookmark(mapOf("url" to def.fileUrl, "line" to "${def.line}")) ?: continue
-      val group = manager.getDefaultGroup()
+      val group = if (groupName != null) {
+        manager.getGroup(groupName) ?: manager.addGroup(groupName, false)
+      }
+      else {
+        manager.getDefaultGroup()
+      }
       if (group != null) {
         group.add(bookmark, def.type, def.name?.takeIf { it.isNotBlank() })
       }
@@ -183,48 +190,26 @@ class BreakpointIdeManager(private val project: Project) {
     return depManager?.isLeaveEnabled(bp) ?: true
   }
 
-  fun setMasterBreakpoint(slave: XLineBreakpoint<*>, master: XLineBreakpoint<*>, leaveEnabled: Boolean) =
-    WriteAction.compute<Unit, Exception> {
-      depManager?.setMasterBreakpoint(slave, master, leaveEnabled)
-    }
 
-  fun clearMasterBreakpoint(bp: XLineBreakpoint<*>) = WriteAction.compute<Unit, Exception> {
+  suspend fun setMasterBreakpoint(slave: XLineBreakpoint<*>, master: XLineBreakpoint<*>, leaveEnabled: Boolean): Unit? = writeAction {
+    depManager?.setMasterBreakpoint(slave, master, leaveEnabled)
+  }
+
+  suspend fun clearMasterBreakpoint(bp: XLineBreakpoint<*>): Unit? = writeAction {
     depManager?.clearMasterBreakpoint(bp)
   }
 
-  fun setDefaultGroup(groupName: String?) = WriteAction.compute<Unit, Exception> {
+  suspend fun setDefaultGroup(groupName: String?): Unit = writeAction {
     (bpManager as? XBreakpointManagerImpl)?.defaultGroup = groupName
-    val bmManager = BookmarksManager.getInstance(project) ?: return@compute
+    val bmManager = BookmarksManager.getInstance(project) ?: return@writeAction
     if (groupName == null) {
       bmManager.getDefaultGroup()?.isDefault = false
-      return@compute
+      return@writeAction
     }
-    val group = bmManager.getGroup(groupName) ?: bmManager.addGroup(groupName, false) ?: return@compute
+    val group = bmManager.getGroup(groupName) ?: bmManager.addGroup(groupName, false) ?: return@writeAction
     group.isDefault = true
   }
 
-  /** Switches active group and syncs IDE breakpoints. Must be called on EDT inside a write action. */
-  fun checkout(targetGroupId: Int?, service: DebugMapService) {
-    val currentGroupId = service.getActiveGroupId()
-    // Null out first so breakpointRemoved events (synchronous) are ignored.
-    service.setActiveGroupId(null)
-    if (currentGroupId != null) {
-      val bookmarksToRemove = service.getGroupBookmarks(currentGroupId)
-      // Register suppressions before removing: BookmarksManager fires bookmarkRemoved via
-      // invokeLater (async), so the events arrive after this method returns. The listener will
-      // consume each entry instead of mirroring it back into the in-memory store.
-      service.suppressBookmarkRemovals(bookmarksToRemove)
-      removeBreakpointDefs(service.getGroupBreakpoints(currentGroupId))
-      removeBookmarkDefs(bookmarksToRemove)
-    }
-
-    // Set target before adding so breakpointAdded/bookmarkAdded events sync to the right group.
-    service.setActiveGroupId(targetGroupId)
-    if (targetGroupId != null) {
-      addBreakpointDefs(service.getGroupBreakpoints(targetGroupId))
-      addBookmarkDefs(service.getGroupBookmarks(targetGroupId))
-    }
-  }
 }
 
 

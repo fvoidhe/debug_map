@@ -22,13 +22,15 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 @Service(Service.Level.PROJECT)
 @State(name = "DebugMap", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
-class DebugMapService(val project: Project) : PersistentStateComponent<PersistedState>, Disposable {
+class DebugMapService(val project: Project, private val cs: CoroutineScope) : PersistentStateComponent<PersistedState>, Disposable {
 
   private val _groups = MutableStateFlow<List<GroupData>>(emptyList())
   val groups: StateFlow<List<GroupData>> = _groups.asStateFlow()
@@ -102,7 +104,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   internal fun setActiveGroupId(groupId: Int?) {
     breakpointManager.activeGroupId = groupId
     val groupName = groupId?.let { breakpointManager.getGroup(it)?.name }
-    ideManager.setDefaultGroup(groupName)
+    cs.launch { ideManager.setDefaultGroup(groupName) }
   }
 
   override fun getState(): PersistedState = PersistedState().also { state ->
@@ -197,7 +199,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     val oldName = breakpointManager.getGroup(groupId)?.name
     breakpointManager.renameGroup(groupId, name)
     if (groupId == breakpointManager.activeGroupId && oldName != null) {
-      ideManager.renameGroup(oldName, name)
+      cs.launch { ideManager.renameGroup(oldName, name) }
     }
     syncState()
   }
@@ -260,7 +262,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   fun removeBreakpointByToolWindow(groupId: Int, fileUrl: String, line: Int, column: Int = 0) {
     breakpointManager.removeBreakpointFromGroup(groupId, fileUrl, line, column)
     if (groupId == breakpointManager.activeGroupId) {
-      ideManager.findLineBreakpoint(fileUrl, line, column)?.let { ideManager.removeBreakpoint(it) }
+      cs.launch { ideManager.findLineBreakpoint(fileUrl, line, column)?.let { ideManager.removeBreakpoint(it) } }
     }
     syncState()
   }
@@ -340,7 +342,25 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   /** Must be called within a writeAction. Switches active group and syncs IDE breakpoints. */
   fun checkout(targetGroupId: Int?) {
     markerTracker.flushAll()
-    ideManager.checkout(targetGroupId, this)
+    val currentGroupId = getActiveGroupId()
+    // Null out first so breakpointRemoved events (synchronous) are ignored.
+    setActiveGroupId(null)
+    if (currentGroupId != null) {
+      val bookmarksToRemove = getGroupBookmarks(currentGroupId)
+      // Register suppressions before removing: BookmarksManager fires bookmarkRemoved via
+      // invokeLater (async), so the events arrive after this method returns. The listener will
+      // consume each entry instead of mirroring it back into the in-memory store.
+      suppressBookmarkRemovals(bookmarksToRemove)
+      ideManager.removeBreakpointDefs(getGroupBreakpoints(currentGroupId))
+      ideManager.removeBookmarkDefs(bookmarksToRemove)
+    }
+    // Set target before adding so breakpointAdded/bookmarkAdded events sync to the right group.
+    setActiveGroupId(targetGroupId)
+    if (targetGroupId != null) {
+      val targetGroupName = breakpointManager.getGroup(targetGroupId)?.name
+      ideManager.addBreakpointDefs(getGroupBreakpoints(targetGroupId))
+      ideManager.addBookmarkDefs(getGroupBookmarks(targetGroupId), targetGroupName)
+    }
     syncState()
     markerTracker.initForOpenFiles()
   }

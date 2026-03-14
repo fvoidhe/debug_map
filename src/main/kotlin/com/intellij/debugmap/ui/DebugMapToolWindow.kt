@@ -199,12 +199,13 @@ internal fun DebugMapToolWindow(project: Project) {
           }
           Key.C -> {
             if ((event.isMetaPressed || event.isCtrlPressed) && isSingle) {
-              val ref = when (val node = selectedNodes.firstOrNull()) {
+              val text = when (val node = selectedNodes.firstOrNull()) {
+                is DebugMapNode.Group -> node.name
                 is DebugMapNode.BookmarkItem -> buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name)
                 is DebugMapNode.BreakpointItem -> buildCopyText("breakpoint", service.buildReference(node.def.fileUrl, node.def.line), node.def.name)
                 else -> null
               }
-              if (ref != null) { copyToClipboard(ref); true } else false
+              if (text != null) { copyToClipboard(text); true } else false
             } else false
           }
           else -> false
