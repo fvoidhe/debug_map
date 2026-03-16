@@ -125,10 +125,11 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             pb.name = def.name?.ifEmpty { null }
             pb.enabled = def.enabled
             pb.logMessage = def.logMessage
+            pb.logStack = def.logStack
             pb.suspendPolicy = def.suspendPolicy
-            pb.masterFileUrl = def.masterFileUrl
-            pb.masterLine = def.masterLine
+            pb.masterBreakpointId = def.masterBreakpointId
             pb.masterLeaveEnabled = def.masterLeaveEnabled
+            pb.id = def.id
           }
         }.toMutableList()
         pg.bookmarks = group.bookmarks.map { def ->
@@ -165,10 +166,11 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             name = pb.name,
             enabled = pb.enabled,
             logMessage = pb.logMessage,
+            logStack = pb.logStack,
             suspendPolicy = pb.suspendPolicy,
-            masterFileUrl = pb.masterFileUrl,
-            masterLine = pb.masterLine,
+            masterBreakpointId = pb.masterBreakpointId,
             masterLeaveEnabled = pb.masterLeaveEnabled,
+            id = if (pb.id != 0L) pb.id else kotlin.random.Random.nextLong(),
           )
         },
         bookmarks = pg.bookmarks.map { pb ->
@@ -237,6 +239,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   fun getGroupBreakpoints(groupId: Int): List<BreakpointDef> =
     breakpointManager.getGroupBreakpoints(groupId)
 
+  fun findBreakpointById(id: Long): BreakpointDef? =
+    breakpointManager.findBreakpointById(id)
+
   fun getGroupBookmarks(groupId: Int): List<BookmarkDef> =
     breakpointManager.getGroupBookmarks(groupId)
 
@@ -268,7 +273,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   }
 
   fun moveBreakpointLine(def: BreakpointDef, newLine: Int) {
-    breakpointManager.moveBreakpointLine(def, newLine)
+    breakpointManager.replaceBreakpointDef(def.copy(line = newLine))
     syncState()
   }
 
@@ -287,6 +292,16 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
   fun removeBookmarkByIde(groupId: Int, fileUrl: String, line: Int) {
     breakpointManager.removeBookmarkFromGroup(groupId, fileUrl, line)
+    syncState()
+  }
+
+  /** Called from the tool window or MCP: replaces the def in-memory and applies all properties to the IDE breakpoint if the group is active. */
+  fun updateBreakpointByToolWindow(updatedDef: BreakpointDef) {
+    breakpointManager.replaceBreakpointDef(updatedDef)
+    if (updatedDef.groupId == breakpointManager.activeGroupId) {
+      val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
+      cs.launch { ideManager.applyBreakpointProperties(updatedDef, masterDef) }
+    }
     syncState()
   }
 

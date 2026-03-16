@@ -13,11 +13,13 @@ class PersistedBreakpoint {
   var name: String? = null
   var enabled: Boolean? = null
   var logMessage: Boolean? = null
+  var logStack: Boolean? = null
   /** "ALL", "THREAD", or "NONE". null = IDE default. */
   var suspendPolicy: String? = null
-  var masterFileUrl: String? = null
-  var masterLine: Int? = null
+  var masterBreakpointId: Long? = null
   var masterLeaveEnabled: Boolean? = null
+  /** Stable primary key; 0 means unset (older persisted state) — a new random id is assigned on load. */
+  var id: Long = 0
 }
 
 /** XML-serializable bookmark bean. */

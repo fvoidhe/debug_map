@@ -43,7 +43,7 @@ internal fun resolveBreakpointIcon(def: BreakpointDef, isInActiveGroup: Boolean 
   val base = when {
     !isInActiveGroup -> icons.disabled
     def.enabled == false -> icons.disabled
-    def.masterFileUrl != null -> icons.dependent
+    def.masterBreakpointId != null -> icons.dependent
     !def.logExpression.isNullOrBlank() || def.suspendPolicy == "NONE" -> icons.noSuspend
     else -> icons.normal
   }

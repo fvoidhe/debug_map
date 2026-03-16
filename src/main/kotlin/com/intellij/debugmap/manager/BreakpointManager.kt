@@ -25,6 +25,9 @@ class BreakpointManager {
   /** Secondary index: group name → group id. Enforces name uniqueness. */
   private val nameToId = mutableMapOf<String, Int>()
 
+  /** Secondary index: breakpoint id → BreakpointDef for O(1) id-based lookup. */
+  private val idMap = mutableMapOf<Long, BreakpointDef>()
+
   val nextGroupId: Int get() = lock.withLock { _nextGroupId }
   var activeGroupId: Int?
     get() = lock.withLock { _activeGroupId }
@@ -71,7 +74,10 @@ class BreakpointManager {
     val group = groupMap.remove(groupId) ?: return@withLock
     groupOrder.remove(groupId)
     nameToId.remove(group.name)
-    group.breakpoints.forEach { def -> fileMap[def.fileUrl]?.remove(def) }
+    group.breakpoints.forEach { def ->
+      fileMap[def.fileUrl]?.remove(def)
+      idMap.remove(def.id)
+    }
     group.bookmarks.forEach { def -> fileMap[def.fileUrl]?.remove(def) }
     fileMap.entries.removeIf { (_, list) -> list.isEmpty() }
   }
@@ -84,11 +90,15 @@ class BreakpointManager {
     groupOrder.clear()
     fileMap.clear()
     nameToId.clear()
+    idMap.clear()
     snapshot.forEach { group ->
       groupMap[group.id] = group
       groupOrder.addLast(group.id)
       nameToId[group.name] = group.id
-      group.breakpoints.forEach { def -> fileMap.getOrPut(def.fileUrl) { mutableListOf() }.add(def) }
+      group.breakpoints.forEach { def ->
+        fileMap.getOrPut(def.fileUrl) { mutableListOf() }.add(def)
+        idMap[def.id] = def
+      }
       group.bookmarks.forEach { def -> fileMap.getOrPut(def.fileUrl) { mutableListOf() }.add(def) }
     }
     _nextGroupId = nextGroupId
@@ -99,22 +109,57 @@ class BreakpointManager {
     groupMap[groupId]?.breakpoints ?: emptyList()
   }
 
-  fun upsertBreakpointInGroup(groupId: Int, def: BreakpointDef): Unit =
-    upsertInGroup(groupId, def, { it.breakpoints }, { g, l -> g.copy(breakpoints = l) }) { copy(name = it) }
+  fun upsertBreakpointInGroup(groupId: Int, def: BreakpointDef): Unit = lock.withLock {
+    val group = groupMap[groupId] ?: return@withLock
+    val list = group.breakpoints.toMutableList()
+    val idx = list.indexOfFirst { def.sameLocation(it) }
+    val existing = list.getOrNull(idx)
+    // Same location → preserve the existing id (and name if caller omitted it). New location → add as-is.
+    val storedDef = when {
+      existing == null -> def
+      def.name == null -> def.copy(name = existing.name, id = existing.id)
+      else -> def.copy(id = existing.id)
+    }
+    if (idx >= 0) list[idx] = storedDef else list.add(storedDef)
+    groupMap[groupId] = group.copy(breakpoints = list)
+    idMap[storedDef.id] = storedDef
+    fileMap.getOrPut(storedDef.fileUrl) { mutableListOf() }.apply {
+      val fIdx = indexOfFirst { it.groupId == groupId && storedDef.sameLocation(it) && it is BreakpointDef }
+      if (fIdx >= 0) set(fIdx, storedDef) else add(storedDef)
+    }
+  }
 
   fun removeBreakpointFromGroup(groupId: Int, fileUrl: String, line: Int, column: Int = 0): Unit = lock.withLock {
     val group = groupMap[groupId] ?: return@withLock
-    groupMap[groupId] = group.copy(breakpoints = group.breakpoints.filter {
-      !(it.fileUrl == fileUrl && it.line == line && it.column == column)
-    })
+    val removed = group.breakpoints.filter { it.fileUrl == fileUrl && it.line == line && it.column == column }
+    removed.forEach { idMap.remove(it.id) }
+    groupMap[groupId] = group.copy(breakpoints = group.breakpoints - removed.toSet())
     fileMap[fileUrl]?.removeIf { it.groupId == groupId && it.line == line && it is BreakpointDef && it.column == column }
   }
 
+  /** Finds a breakpoint by its stable primary key across all groups. */
+  fun findBreakpointById(id: Long): BreakpointDef? = lock.withLock { idMap[id] }
+
   /**
-   * Moves [def] to [newLine] within its group atomically, preserving [name].
+   * Replaces the stored def for a breakpoint identified by [def.id].
+   * Unlike [upsertBreakpointInGroup], preserves only the id — all other fields (including name) are taken from [def].
+   * No-op if the id is not found.
    */
-  fun moveBreakpointLine(def: BreakpointDef, newLine: Int): Unit =
-    moveLocationLine(def, newLine, { it.breakpoints }, { g, l -> g.copy(breakpoints = l) }) { copy(line = it) }
+  fun replaceBreakpointDef(def: BreakpointDef): Unit = lock.withLock {
+    val existing = idMap[def.id] ?: return@withLock
+    val group = groupMap[existing.groupId] ?: return@withLock
+    val list = group.breakpoints.toMutableList()
+    val idx = list.indexOfFirst { it is BreakpointDef && (it as BreakpointDef).id == def.id }
+    if (idx < 0) return@withLock
+    list[idx] = def
+    groupMap[existing.groupId] = group.copy(breakpoints = list)
+    idMap[def.id] = def
+    fileMap[existing.fileUrl]?.apply {
+      val fIdx = indexOfFirst { it.groupId == existing.groupId && it is BreakpointDef && (it as BreakpointDef).id == def.id }
+      if (fIdx >= 0) set(fIdx, def)
+    }
+  }
+
 
   fun getBreakpointsByFile(fileUrl: String): List<BreakpointDef> = lock.withLock {
     fileMap[fileUrl]?.filterIsInstance<BreakpointDef>() ?: emptyList()

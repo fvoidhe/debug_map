@@ -18,6 +18,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.XDebuggerUtil
+import com.intellij.xdebugger.breakpoints.SuspendPolicy
 import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
@@ -178,6 +179,38 @@ class BreakpointIdeManager(private val project: Project) {
   }
 
   private val bookmarkProvider get() = BookmarkProvider.EP.getExtensions(project).minByOrNull { it.weight }
+
+  /**
+   * Applies all properties from [def] to the matching IDE breakpoint.
+   * Used by the update path to keep the IDE in sync after the manager state has already been updated.
+   * No-op if the breakpoint is not currently active in the IDE.
+   */
+  suspend fun applyBreakpointProperties(def: BreakpointDef, masterDef: BreakpointDef?) {
+    val bp = findLineBreakpoint(def.fileUrl, def.line, def.column) ?: return
+    val masterBp = masterDef?.let { findLineBreakpoint(it.fileUrl, it.line) }
+    writeAction {
+      def.enabled?.let { bp.setEnabled(it) }
+      (bp as? XBreakpointBase<*, *, *>)?.userDescription = def.name?.ifBlank { null }
+      bp.setCondition(def.condition)
+      bp.setLogExpression(def.logExpression)
+      def.logMessage?.let { bp.setLogMessage(it) }
+      def.logStack?.let { bp.setLogStack(it) }
+      def.suspendPolicy?.let {
+        bp.setSuspendPolicy(when (it.uppercase()) {
+                              "ALL" -> SuspendPolicy.ALL
+                              "THREAD" -> SuspendPolicy.THREAD
+                              "NONE" -> SuspendPolicy.NONE
+                              else -> return@let
+                            })
+      }
+      if (def.masterBreakpointId == null) {
+        depManager?.clearMasterBreakpoint(bp)
+      }
+      else if (masterBp != null) {
+        depManager?.setMasterBreakpoint(bp, masterBp, def.masterLeaveEnabled ?: true)
+      }
+    }
+  }
 
   fun getMasterBreakpoint(bp: XLineBreakpoint<*>): XLineBreakpoint<*>? {
     return depManager?.getMasterBreakpoint(bp) as? XLineBreakpoint<*>

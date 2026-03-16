@@ -67,13 +67,16 @@ private fun BreakpointDetail(node: DebugMapNode.BreakpointItem, groups: List<Gro
   if (def.suspendPolicy != null && def.suspendPolicy != "ALL") {
     DetailRow("Suspend", def.suspendPolicy.lowercase().replaceFirstChar { it.uppercase() })
   }
-  if (def.masterFileUrl != null && def.masterLine != null) {
-    val masterPath = remember(def.masterFileUrl) {
-      VirtualFileManager.getInstance().findFileByUrl(def.masterFileUrl)?.path
-        ?: def.masterFileUrl.removePrefix("file://")
+  val masterDef = remember(def.masterBreakpointId, groups) {
+    def.masterBreakpointId?.let { id -> groups.flatMap { it.breakpoints }.firstOrNull { it.id == id } }
+  }
+  if (masterDef != null) {
+    val masterPath = remember(masterDef.fileUrl) {
+      VirtualFileManager.getInstance().findFileByUrl(masterDef.fileUrl)?.path
+        ?: masterDef.fileUrl.removePrefix("file://")
     }
     val leaveEnabled = if (def.masterLeaveEnabled == true) " (keep enabled)" else ""
-    DetailRow("Master", "$masterPath:${def.masterLine + 1}$leaveEnabled")
+    DetailRow("Master", "$masterPath:${masterDef.line + 1}$leaveEnabled")
   }
 }
 

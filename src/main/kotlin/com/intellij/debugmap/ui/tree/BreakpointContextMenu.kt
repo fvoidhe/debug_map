@@ -37,57 +37,52 @@ internal fun BreakpointContextMenu(
   val breakpoints = remember(groups, node.def.groupId) { groups.find { it.id == node.def.groupId }?.breakpoints ?: emptyList() }
   val breakpointIndex = if (isSingle) breakpoints.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column } else -1
 
+  val menuStyle = rememberMenuStyle()
   PopupMenu(
     onDismissRequest = { onDismiss(); true },
     popupPositionProvider = rememberPopupPositionProviderAtPosition(offset),
+    style = menuStyle,
     adContent = null,
   ) {
-    if (isSingle && breakpointIndex > 0) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveUp,
-        keybinding = moveUpKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderBreakpoint(node.def.groupId, node.def, -1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.up")) }
-    }
-    if (isSingle && breakpointIndex >= 0 && breakpointIndex < breakpoints.size - 1) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveDown,
-        keybinding = moveDownKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderBreakpoint(node.def.groupId, node.def, 1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.down")) }
-    }
-    if (isSingle) {
-      copyReferenceItem(buildCopyText("breakpoint", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss)
-    }
-    if (isSingle && node.def.groupId != activeGroupId) {
-      checkoutItem(node.def.groupId, service, onDismiss)
-    }
-    if (isSingle) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.Edit,
-        keybinding = renameKeybinding,
-        onClick = {
-          onDismiss()
-          val current = node.def.name ?: ""
-          val name = Messages.showInputDialog(
-            project,
-            DebugMapBundle.message("dialog.rename.breakpoint.label"),
-            DebugMapBundle.message("dialog.rename.breakpoint.title"),
-            null, current, null,
-          ) ?: return@selectableItem
-          service.renameBreakpoint(node.def, name)
-        },
-      ) { Text(DebugMapBundle.message("action.rename.breakpoint")) }
-    }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveUp,
+      keybinding = moveUpKeybinding,
+      enabled = isSingle && breakpointIndex > 0,
+      onClick = {
+        onDismiss()
+        service.reorderBreakpoint(node.def.groupId, node.def, -1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.up")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveDown,
+      keybinding = moveDownKeybinding,
+      enabled = isSingle && breakpointIndex >= 0 && breakpointIndex < breakpoints.size - 1,
+      onClick = {
+        onDismiss()
+        service.reorderBreakpoint(node.def.groupId, node.def, 1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.down")) }
+    copyReferenceItem(buildCopyText("breakpoint", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss, enabled = isSingle)
+    checkoutItem(node.def.groupId, service, onDismiss, enabled = isSingle && node.def.groupId != activeGroupId)
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.Edit,
+      keybinding = renameKeybinding,
+      enabled = isSingle,
+      onClick = {
+        onDismiss()
+        val current = node.def.name ?: ""
+        val name = Messages.showInputDialog(
+          project,
+          DebugMapBundle.message("dialog.rename.breakpoint.label"),
+          DebugMapBundle.message("dialog.rename.breakpoint.title"),
+          null, current, null,
+        ) ?: return@selectableItem
+        service.renameBreakpoint(node.def, name)
+      },
+    ) { Text(DebugMapBundle.message("action.rename.breakpoint")) }
     selectableItem(
       selected = false,
       iconKey = AllIconsKeys.General.Remove,

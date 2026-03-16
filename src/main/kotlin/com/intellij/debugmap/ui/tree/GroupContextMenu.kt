@@ -37,97 +37,93 @@ internal fun GroupContextMenu(
   val copyNameKeybinding = remember { shortcutHint("\$Copy") }
   val groupIndex = if (isSingle) groups.indexOfFirst { it.id == node.id } else -1
 
+  val menuStyle = rememberMenuStyle()
   PopupMenu(
     onDismissRequest = { onDismiss(); true },
     popupPositionProvider = rememberPopupPositionProviderAtPosition(offset),
+    style = menuStyle,
     adContent = null,
   ) {
-    if (isSingle && groupIndex > 0) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveUp,
-        keybinding = moveUpKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderGroup(node.id, -1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.up")) }
-    }
-    if (isSingle && groupIndex >= 0 && groupIndex < groups.size - 1) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveDown,
-        keybinding = moveDownKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderGroup(node.id, 1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.down")) }
-    }
-    if (isSingle && node.id != activeGroupId) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.CheckOut,
-        onClick = {
-          onDismiss()
-          WriteAction.run<Exception> { service.checkout(node.id) }
-        },
-      ) { Text(DebugMapBundle.message("action.checkout.group")) }
-    }
-    if (isSingle) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.Copy,
-        keybinding = copyNameKeybinding,
-        onClick = {
-          onDismiss()
-          copyToClipboard(node.name)
-        },
-      ) { Text(DebugMapBundle.message("action.copy.name")) }
-    }
-    if (isSingle) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.Edit,
-        keybinding = renameKeybinding,
-        onClick = {
-          onDismiss()
-          val current = groups.find { it.id == node.id }?.name ?: return@selectableItem
-          val name = Messages.showInputDialog(
-            project,
-            DebugMapBundle.message("dialog.rename.group.label"),
-            DebugMapBundle.message("dialog.rename.group.title"),
-            null, current, null,
-          ) ?: return@selectableItem
-          if (name.isNotBlank()) service.renameGroup(node.id, name)
-        },
-      ) { Text(DebugMapBundle.message("action.rename.group")) }
-    }
-    if (deletable.isNotEmpty()) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.General.Remove,
-        keybinding = deleteKeybinding,
-        onClick = {
-          onDismiss()
-          val anyNonEmpty = deletable.any { it.bookmarkCount > 0 || it.breakpointCount > 0 }
-          val confirmed = !anyNonEmpty || Messages.showYesNoDialog(
-            project,
-            if (deletable.size == 1)
-              DebugMapBundle.message("dialog.delete.group.message", deletable.first().name)
-            else
-              DebugMapBundle.message("dialog.delete.groups.message", deletable.size),
-            DebugMapBundle.message("dialog.delete.group.title"),
-            Messages.getWarningIcon(),
-          ) == Messages.YES
-          if (confirmed) WriteAction.run<Exception> {
-            deletable.forEach { service.deleteGroup(it.id) }
-          }
-        },
-      ) {
-        val key = if (deletable.size == 1) "action.delete.group" else "action.delete.groups"
-        Text(DebugMapBundle.message(key))
-      }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveUp,
+      keybinding = moveUpKeybinding,
+      enabled = isSingle && groupIndex > 0,
+      onClick = {
+        onDismiss()
+        service.reorderGroup(node.id, -1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.up")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveDown,
+      keybinding = moveDownKeybinding,
+      enabled = isSingle && groupIndex >= 0 && groupIndex < groups.size - 1,
+      onClick = {
+        onDismiss()
+        service.reorderGroup(node.id, 1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.down")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.CheckOut,
+      enabled = isSingle && node.id != activeGroupId,
+      onClick = {
+        onDismiss()
+        WriteAction.run<Exception> { service.checkout(node.id) }
+      },
+    ) { Text(DebugMapBundle.message("action.checkout.group")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.Copy,
+      keybinding = copyNameKeybinding,
+      enabled = isSingle,
+      onClick = {
+        onDismiss()
+        copyToClipboard(node.name)
+      },
+    ) { Text(DebugMapBundle.message("action.copy.name")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.Edit,
+      keybinding = renameKeybinding,
+      enabled = isSingle,
+      onClick = {
+        onDismiss()
+        val current = groups.find { it.id == node.id }?.name ?: return@selectableItem
+        val name = Messages.showInputDialog(
+          project,
+          DebugMapBundle.message("dialog.rename.group.label"),
+          DebugMapBundle.message("dialog.rename.group.title"),
+          null, current, null,
+        ) ?: return@selectableItem
+        if (name.isNotBlank()) service.renameGroup(node.id, name)
+      },
+    ) { Text(DebugMapBundle.message("action.rename.group")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.General.Remove,
+      keybinding = deleteKeybinding,
+      enabled = deletable.isNotEmpty(),
+      onClick = {
+        onDismiss()
+        val anyNonEmpty = deletable.any { it.bookmarkCount > 0 || it.breakpointCount > 0 }
+        val confirmed = !anyNonEmpty || Messages.showYesNoDialog(
+          project,
+          if (deletable.size == 1)
+            DebugMapBundle.message("dialog.delete.group.message", deletable.first().name)
+          else
+            DebugMapBundle.message("dialog.delete.groups.message", deletable.size),
+          DebugMapBundle.message("dialog.delete.group.title"),
+          Messages.getWarningIcon(),
+        ) == Messages.YES
+        if (confirmed) WriteAction.run<Exception> {
+          deletable.forEach { service.deleteGroup(it.id) }
+        }
+      },
+    ) {
+      val key = if (deletable.size == 1) "action.delete.group" else "action.delete.groups"
+      Text(DebugMapBundle.message(key))
     }
   }
 }

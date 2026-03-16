@@ -37,57 +37,52 @@ internal fun BookmarkContextMenu(
   val bookmarks = remember(groups, node.def.groupId) { groups.find { it.id == node.def.groupId }?.bookmarks ?: emptyList() }
   val bookmarkIndex = if (isSingle) bookmarks.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line } else -1
 
+  val menuStyle = rememberMenuStyle()
   PopupMenu(
     onDismissRequest = { onDismiss(); true },
     popupPositionProvider = rememberPopupPositionProviderAtPosition(offset),
+    style = menuStyle,
     adContent = null,
   ) {
-    if (isSingle && bookmarkIndex > 0) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveUp,
-        keybinding = moveUpKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderBookmark(node.def.groupId, node.def, -1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.up")) }
-    }
-    if (isSingle && bookmarkIndex >= 0 && bookmarkIndex < bookmarks.size - 1) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.MoveDown,
-        keybinding = moveDownKeybinding,
-        onClick = {
-          onDismiss()
-          service.reorderBookmark(node.def.groupId, node.def, 1)
-        },
-      ) { Text(DebugMapBundle.message("action.move.down")) }
-    }
-    if (isSingle) {
-      copyReferenceItem(buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss)
-    }
-    if (isSingle && node.def.groupId != activeGroupId) {
-      checkoutItem(node.def.groupId, service, onDismiss)
-    }
-    if (isSingle) {
-      selectableItem(
-        selected = false,
-        iconKey = AllIconsKeys.Actions.Edit,
-        keybinding = renameKeybinding,
-        onClick = {
-          onDismiss()
-          val current = node.def.name ?: ""
-          val name = Messages.showInputDialog(
-            project,
-            DebugMapBundle.message("dialog.rename.bookmark.label"),
-            DebugMapBundle.message("dialog.rename.bookmark.title"),
-            null, current, null,
-          ) ?: return@selectableItem
-          service.renameBookmark(node.def, name)
-        },
-      ) { Text(DebugMapBundle.message("action.rename.bookmark")) }
-    }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveUp,
+      keybinding = moveUpKeybinding,
+      enabled = isSingle && bookmarkIndex > 0,
+      onClick = {
+        onDismiss()
+        service.reorderBookmark(node.def.groupId, node.def, -1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.up")) }
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.MoveDown,
+      keybinding = moveDownKeybinding,
+      enabled = isSingle && bookmarkIndex >= 0 && bookmarkIndex < bookmarks.size - 1,
+      onClick = {
+        onDismiss()
+        service.reorderBookmark(node.def.groupId, node.def, 1)
+      },
+    ) { Text(DebugMapBundle.message("action.move.down")) }
+    copyReferenceItem(buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss, enabled = isSingle)
+    checkoutItem(node.def.groupId, service, onDismiss, enabled = isSingle && node.def.groupId != activeGroupId)
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.Edit,
+      keybinding = renameKeybinding,
+      enabled = isSingle,
+      onClick = {
+        onDismiss()
+        val current = node.def.name ?: ""
+        val name = Messages.showInputDialog(
+          project,
+          DebugMapBundle.message("dialog.rename.bookmark.label"),
+          DebugMapBundle.message("dialog.rename.bookmark.title"),
+          null, current, null,
+        ) ?: return@selectableItem
+        service.renameBookmark(node.def, name)
+      },
+    ) { Text(DebugMapBundle.message("action.rename.bookmark")) }
     selectableItem(
       selected = false,
       iconKey = AllIconsKeys.General.Remove,

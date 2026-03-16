@@ -1,6 +1,7 @@
 package com.intellij.debugmap.listener
 
 import com.intellij.debugmap.DebugMapService
+import com.intellij.debugmap.manager.column
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.ide.bookmark.Bookmark
@@ -11,12 +12,9 @@ import com.intellij.ide.bookmark.BookmarksManager
 import com.intellij.ide.bookmark.LineBookmark
 import com.intellij.openapi.project.Project
 import com.intellij.xdebugger.XDebuggerManager
-import com.intellij.debugmap.manager.column
-import com.intellij.xdebugger.XDebugSession
 import com.intellij.xdebugger.breakpoints.XBreakpoint
 import com.intellij.xdebugger.breakpoints.XBreakpointListener
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint
-import com.intellij.xdebugger.impl.XDebugSessionImpl
 import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 
 /** Keeps [DebugMapService] in sync with IDE breakpoint and bookmark lifecycle events. */
@@ -63,6 +61,10 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
 
   fun XLineBreakpoint<*>.toDef(groupId: Int): BreakpointDef {
     val master = service.ideManager.getMasterBreakpoint(this)
+    val masterDef = master?.let { m ->
+      service.getBreakpointsByFile(m.fileUrl)
+        .firstOrNull { it.line == m.line && it.column == m.column(service.ideManager) }
+    }
     return BreakpointDef(
       groupId = groupId,
       fileUrl = fileUrl,
@@ -74,9 +76,9 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
       name = (this as? XBreakpointBase<*, *, *>)?.getUserDescription(),
       enabled = isEnabled,
       logMessage = isLogMessage,
+      logStack = isLogStack,
       suspendPolicy = suspendPolicy.name,
-      masterFileUrl = master?.fileUrl,
-      masterLine = master?.line,
+      masterBreakpointId = masterDef?.id,
       masterLeaveEnabled = master?.let { service.ideManager.isLeaveEnabled(this) },
     )
   }

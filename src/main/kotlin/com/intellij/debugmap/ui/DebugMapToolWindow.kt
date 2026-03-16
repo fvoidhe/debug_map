@@ -160,7 +160,7 @@ internal fun DebugMapToolWindow(project: Project) {
         key = AllIconsKeys.Actions.CheckOut,
         contentDescription = "Checkout Group",
         enabled = selectionKind == SelectionKind.GROUPS && isSingle &&
-                  (selectedNodes.first() as DebugMapNode.Group).id != activeGroupId,
+                  (selectedNodes.firstOrNull() as? DebugMapNode.Group)?.id != activeGroupId,
         onClick = {
           val gId = (selectedNodes.firstOrNull() as? DebugMapNode.Group)?.id ?: return@IconActionButton
           WriteAction.run<Exception> { service.checkout(gId) }
@@ -276,9 +276,10 @@ internal fun DebugMapToolWindow(project: Project) {
       }
     }
 
-    if (isSingle && (selectionKind == SelectionKind.BOOKMARKS || selectionKind == SelectionKind.BREAKPOINTS)) {
+    val singleNode = selectedNodes.firstOrNull()
+    if (isSingle && singleNode != null && (selectionKind == SelectionKind.BOOKMARKS || selectionKind == SelectionKind.BREAKPOINTS)) {
       Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
-      DebugMapDetailPanel(node = selectedNodes.first(), groups = groups)
+      DebugMapDetailPanel(node = singleNode, groups = groups)
     }
   }
 }

@@ -14,8 +14,6 @@ import com.intellij.mcpserver.toolsets.Constants
 import com.intellij.mcpserver.util.resolveInProject
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.xdebugger.breakpoints.SuspendPolicy
-import com.intellij.xdebugger.impl.breakpoints.XBreakpointBase
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.Serializable
 
@@ -60,33 +58,30 @@ class DebugToolset : McpToolset {
       mcpFail("Cannot set breakpoint at $path:$line — not a valid breakpoint location (no executable code on this line)")
     }
 
-    service.addBreakpointByToolWindow(groupId, BreakpointDef(
+    val def = BreakpointDef(
       groupId = groupId,
       fileUrl = file.url,
       line = lineZeroBased,
       name = description.takeIf { it.isNotBlank() },
-    ))
+    )
+    service.addBreakpointByToolWindow(groupId, def)
 
-    return BreakpointResult(path = path, line = line, status = "created")
+    return BreakpointResult(path = path, line = line, status = "created", id = def.id)
   }
 
   @McpTool(name = "debug_update_breakpoint")
   @McpDescription("""
-        |Updates properties of an existing line breakpoint identified by file and line.
+        |Updates properties of an existing line breakpoint identified by its stable id.
         |Only the parameters you provide are changed; omitted parameters keep their current value.
         |
         |Dependency management:
-        | - Provide dependsOnPath + dependsOnLine to make this breakpoint fire only after a master breakpoint has been hit.
-        | - Pass dependsOnPath as an empty string to clear an existing dependency.
-        | - Omit dependsOnPath entirely to leave the dependency unchanged.
+        | - Provide dependsOnId to set a master-breakpoint dependency.
+        | - Pass clearDependency=true to remove an existing dependency.
+        | - Omit both to leave the dependency unchanged.
     """)
   suspend fun update_breakpoint(
-    @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
-    path: String,
-    @McpDescription("1-based line number of the breakpoint")
-    line: Int,
-    @McpDescription("Breakpoint group name. Defaults to the currently active group if omitted.")
-    group: String? = null,
+    @McpDescription("Stable breakpoint id returned by debug_list_breakpoints or debug_add_breakpoint.")
+    id: Long,
     @McpDescription("Enable or disable the breakpoint")
     enabled: Boolean? = null,
     @McpDescription("Human-readable label for this breakpoint. Pass empty string to clear.")
@@ -101,79 +96,83 @@ class DebugToolset : McpToolset {
     logStack: Boolean? = null,
     @McpDescription("Suspend policy: ALL, THREAD, or NONE.")
     suspendPolicy: String? = null,
-    @McpDescription("Path of the master breakpoint. Provide to set a dependency, pass empty string to clear, omit to leave unchanged.")
-    dependsOnPath: String? = null,
-    @McpDescription("1-based line number of the master breakpoint. Required when dependsOnPath is non-empty.")
-    dependsOnLine: Int? = null,
+    @McpDescription("Id of the master breakpoint to depend on. Omit to leave the dependency unchanged.")
+    dependsOnId: Long? = null,
+    @McpDescription("Set to true to remove the existing master-breakpoint dependency.")
+    clearDependency: Boolean = false,
     @McpDescription("If true (default), this breakpoint stays permanently enabled after master fires. If false, fires once then disables itself.")
     dependencyLeaveEnabled: Boolean = true,
   ): BreakpointResult {
-    currentCoroutineContext().reportToolActivity("Updating breakpoint at $path:$line")
     val project = currentCoroutineContext().project
     val service = DebugMapService.getInstance(project)
 
-    val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
-               ?: mcpFail("File not found: $path")
+    currentCoroutineContext().reportToolActivity("Updating breakpoint id=$id")
+    val def = service.findBreakpointById(id) ?: mcpFail("No breakpoint found with id $id")
 
-    val lineZeroBased = line - 1
-    val activeGroupId = resolveGroupId(service, group)
-
-    service.getGroupBreakpoints(activeGroupId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
-    ?: mcpFail("No breakpoint found at $path:$line")
-
-    val bp = service.ideManager.findLineBreakpoint(file.url, lineZeroBased)
-    if (bp != null) {
-      enabled?.let { bp.setEnabled(it) }
-      description?.let { (bp as? XBreakpointBase<*, *, *>)?.userDescription = it.ifBlank { null } }
-      condition?.let { bp.setCondition(it.ifBlank { null }) }
-      logExpression?.let { bp.setLogExpression(it.ifBlank { null }) }
-      logMessage?.let { bp.setLogMessage(it) }
-      logStack?.let { bp.setLogStack(it) }
-      suspendPolicy?.let {
-        bp.setSuspendPolicy(when (it.uppercase()) {
-                              "ALL" -> SuspendPolicy.ALL
-                              "THREAD" -> SuspendPolicy.THREAD
-                              "NONE" -> SuspendPolicy.NONE
-                              else -> mcpFail("Invalid suspend policy '$it'. Valid values: ALL, THREAD, NONE")
-                            })
+    // Resolve master dependency: set by id, clear explicitly, or leave unchanged.
+    val (newMasterBreakpointId, newMasterLeaveEnabled) = when {
+      clearDependency -> Pair(null, null)
+      dependsOnId != null -> {
+        service.findBreakpointById(dependsOnId) ?: mcpFail("Master breakpoint not found with id $dependsOnId")
+        Pair(dependsOnId, dependencyLeaveEnabled)
       }
-
-      when {
-        dependsOnPath == null -> { /* leave unchanged */
-        }
-        dependsOnPath.isBlank() -> service.ideManager.clearMasterBreakpoint(bp)
-        else -> {
-          val masterFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(dependsOnPath))
-                           ?: mcpFail("Master file not found: $dependsOnPath")
-          val masterLine = dependsOnLine ?: mcpFail("dependsOnLine is required when dependsOnPath is provided")
-          val master = service.ideManager.findLineBreakpoint(masterFile.url, masterLine - 1)
-                       ?: mcpFail("Master breakpoint not found at $dependsOnPath:$masterLine")
-          service.ideManager.setMasterBreakpoint(bp, master, dependencyLeaveEnabled)
-        }
-      }
+      else -> Pair(def.masterBreakpointId, def.masterLeaveEnabled)
     }
 
-    return BreakpointResult(path = path, line = line, status = "updated")
+    val updatedDef = def.copy(
+      name = when {
+        description == null -> def.name
+        description.isBlank() -> null
+        else -> description.trim()
+      },
+      enabled = enabled ?: def.enabled,
+      condition = if (condition != null) condition.ifBlank { null } else def.condition,
+      logExpression = if (logExpression != null) logExpression.ifBlank { null } else def.logExpression,
+      logMessage = logMessage ?: def.logMessage,
+      logStack = logStack ?: def.logStack,
+      suspendPolicy = if (suspendPolicy != null) {
+        when (suspendPolicy.uppercase()) {
+          "ALL", "THREAD", "NONE" -> suspendPolicy.uppercase()
+          else -> mcpFail("Invalid suspend policy '$suspendPolicy'. Valid values: ALL, THREAD, NONE")
+        }
+      }
+      else def.suspendPolicy,
+      masterBreakpointId = newMasterBreakpointId,
+      masterLeaveEnabled = newMasterLeaveEnabled,
+    )
+
+    service.updateBreakpointByToolWindow(updatedDef)
+
+    return BreakpointResult(path = def.fileUrl, line = def.line + 1, status = "updated", id = id)
   }
 
   @McpTool(name = "debug_remove_breakpoint")
   @McpDescription("""
-        |Removes the breakpoint at the specified file and line.
-        |If group is specified, removes only from that group; otherwise removes from the active group.
+        |Removes the breakpoint identified by its stable id, or by file and line.
+        |If group is specified (path+line mode), removes only from that group; otherwise removes from the active group.
         |Reports not_found if no matching breakpoint exists.
     """)
   suspend fun remove_breakpoint(
+    @McpDescription("Stable breakpoint id. When provided, path/line/group are ignored.")
+    id: Long? = null,
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
-    path: String,
+    path: String = "",
     @McpDescription("1-based line number of the breakpoint to remove")
-    line: Int,
+    line: Int = -1,
     @McpDescription("Breakpoint group name. Defaults to the currently active group if omitted.")
     group: String? = null,
   ): BreakpointResult {
-    currentCoroutineContext().reportToolActivity("Removing breakpoint at $path:$line")
     val project = currentCoroutineContext().project
     val service = DebugMapService.getInstance(project)
 
+    if (id != null) {
+      currentCoroutineContext().reportToolActivity("Removing breakpoint id=$id")
+      val def = service.findBreakpointById(id) ?: return BreakpointResult(path = "", line = -1, status = "not_found", id = id)
+      service.removeBreakpointByToolWindow(def.groupId, def.fileUrl, def.line, def.column)
+      return BreakpointResult(path = def.fileUrl, line = def.line + 1, status = "removed", id = id)
+    }
+
+    currentCoroutineContext().reportToolActivity("Removing breakpoint at $path:$line")
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
@@ -181,11 +180,11 @@ class DebugToolset : McpToolset {
     val activeGroupId = resolveGroupId(service, group)
 
     val exists = service.getGroupBreakpoints(activeGroupId).any { it.fileUrl == file.url && it.line == lineZeroBased }
-    if (!exists) return BreakpointResult(path = path, line = line, status = "not_found")
+    if (!exists) return BreakpointResult(path = path, line = line, status = "not_found", id = 0L)
 
     service.removeBreakpointByToolWindow(activeGroupId, file.url, lineZeroBased)
 
-    return BreakpointResult(path = path, line = line, status = "removed")
+    return BreakpointResult(path = path, line = line, status = "removed", id = 0L)
   }
 
   @McpTool(name = "debug_list_breakpoints")
@@ -214,6 +213,7 @@ class DebugToolset : McpToolset {
         if (path != null && !def.fileUrl.contains(path)) continue
         val vf = VirtualFileManager.getInstance().findFileByUrl(def.fileUrl)
         items.add(BreakpointInfo(
+          id = def.id,
           path = def.fileUrl,
           line = def.line + 1,
           group = g.name,
@@ -225,8 +225,7 @@ class DebugToolset : McpToolset {
           logMessage = def.logMessage,
           suspendPolicy = def.suspendPolicy,
           content = vf?.let { lineContent(it, def.line) },
-          dependsOnPath = def.masterFileUrl,
-          dependsOnLine = def.masterLine?.let { it + 1 },
+          dependsOnId = def.masterBreakpointId,
           dependencyLeaveEnabled = def.masterLeaveEnabled,
         ))
       }
@@ -276,10 +275,14 @@ class DebugToolset : McpToolset {
     val line: Int,
     /** "created" | "updated" | "removed" | "not_found" */
     val status: String,
+    /** Stable primary key of the breakpoint. */
+    val id: Long = 0L,
   )
 
   @Serializable
   data class BreakpointInfo(
+    /** Stable primary key — use this in debug_update_breakpoint and debug_remove_breakpoint instead of path+line. */
+    val id: Long,
     val path: String,
     val line: Int,
     val group: String,
@@ -292,8 +295,7 @@ class DebugToolset : McpToolset {
     /** "ALL" | "THREAD" | "NONE" */
     val suspendPolicy: String? = null,
     val content: String? = null,
-    val dependsOnPath: String? = null,
-    val dependsOnLine: Int? = null,
+    val dependsOnId: Long? = null,
     val dependencyLeaveEnabled: Boolean? = null,
   )
 
