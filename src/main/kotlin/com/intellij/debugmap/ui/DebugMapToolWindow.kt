@@ -73,6 +73,7 @@ internal fun DebugMapToolWindow(project: Project) {
   val groups by service.groups.collectAsState()
   val activeGroupId by service.activeGroupId.collectAsState()
   val recentBreakpoints by service.recentBreakpoints.collectAsState()
+  val recentBookmarks by service.recentBookmarks.collectAsState()
   var selectedNodes by remember { mutableStateOf<List<DebugMapNode>>(emptyList()) }
   val treeState = rememberTreeState()
 
@@ -98,7 +99,7 @@ internal fun DebugMapToolWindow(project: Project) {
     )
   }
 
-  val tree = remember(groups, activeGroupId, recentBreakpoints) {
+  val tree = remember(groups, activeGroupId, recentBreakpoints, recentBookmarks) {
     buildTree {
       for (group in groups) {
         addNode(
@@ -107,8 +108,9 @@ internal fun DebugMapToolWindow(project: Project) {
           id = "group-${group.id}",
         ) {
           for (bm in group.bookmarks) {
+            val bmIndex = recentBookmarks.indexOfFirst { it.groupId == bm.groupId && it.fileUrl == bm.fileUrl && it.line == bm.line }
             addLeaf(
-              data = DebugMapNode.BookmarkItem(bm),
+              data = DebugMapNode.BookmarkItem(bm, if (bmIndex != -1) bmIndex else null),
               id = "bm-${group.id}-${bm.fileUrl}-${bm.line}",
             )
           }
@@ -220,6 +222,7 @@ internal fun DebugMapToolWindow(project: Project) {
       onElementDoubleClick = { element ->
         when (val node = element.data) {
           is DebugMapNode.BookmarkItem -> {
+            service.addRecentBookmark(node.def)
             val file = VirtualFileManager.getInstance().findFileByUrl(node.def.fileUrl)
             if (file != null) OpenFileDescriptor(project, file, node.def.line, 0).navigate(true)
           }

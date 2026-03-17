@@ -43,13 +43,11 @@ class DebugToolset : McpToolset {
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
-    val lineZeroBased = line - 1
-    val groupId = service.getGroupIdByName(group) ?: service.createGroup(group)
-
-    val actual = lineContent(file, lineZeroBased)
-    if (actual == null || actual.trim() != content.trim()) {
+    val lineZeroBased = resolveLineByContent(file, line - 1, content) ?: run {
+      val actual = lineContent(file, line - 1)
       mcpFail("Line $line contains '${actual ?: ""}', not '$content'. Re-read the file and pass the exact source text of the target line.")
     }
+    val groupId = service.getGroupIdByName(group) ?: service.createGroup(group)
 
     val existing = service.getGroupBreakpoints(groupId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
     if (existing != null) mcpFail("A breakpoint already exists at $path:$line. Use debug_update_breakpoint to modify it.")

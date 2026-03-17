@@ -14,6 +14,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import org.jetbrains.jewel.ui.component.PopupMenu
 import org.jetbrains.jewel.ui.component.Text
+import org.jetbrains.jewel.ui.component.separator
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -66,15 +67,6 @@ internal fun GroupContextMenu(
     ) { Text(DebugMapBundle.message("action.move.down")) }
     selectableItem(
       selected = false,
-      iconKey = AllIconsKeys.Actions.CheckOut,
-      enabled = isSingle && node.id != activeGroupId,
-      onClick = {
-        onDismiss()
-        WriteAction.run<Exception> { service.checkout(node.id) }
-      },
-    ) { Text(DebugMapBundle.message("action.checkout.group")) }
-    selectableItem(
-      selected = false,
       iconKey = AllIconsKeys.Actions.Copy,
       keybinding = copyNameKeybinding,
       enabled = isSingle,
@@ -83,6 +75,8 @@ internal fun GroupContextMenu(
         copyToClipboard(node.name)
       },
     ) { Text(DebugMapBundle.message("action.copy.name")) }
+    separator()
+    checkoutItem(node.id, service, onDismiss, enabled = isSingle && node.id != activeGroupId)
     selectableItem(
       selected = false,
       iconKey = AllIconsKeys.Actions.Edit,

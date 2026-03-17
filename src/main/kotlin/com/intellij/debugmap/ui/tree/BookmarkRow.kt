@@ -1,6 +1,7 @@
 package com.intellij.debugmap.ui.tree
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,7 +32,19 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
     verticalAlignment = if (isSelected && hasName) Alignment.Top else Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    Spacer(Modifier.width(18.dp))
+    if (node.recentIndex != null) {
+      Box(modifier = Modifier.width(18.dp), contentAlignment = Alignment.CenterStart) {
+        if (node.recentIndex == 0) {
+          Icon(key = AllIconsKeys.Debugger.ThreadCurrent, contentDescription = "Current", modifier = Modifier.size(16.dp))
+        }
+        else {
+          Text(text = "${node.recentIndex}", color = COLOR_INACTIVE)
+        }
+      }
+    }
+    else {
+      Spacer(Modifier.width(18.dp))
+    }
     Icon(key = AllIconsKeys.Nodes.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp))
     if (hasName) {
       Text(
@@ -40,7 +53,7 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
           withStyle(SpanStyle(color = COLOR_INACTIVE)) { append("  $fileName:$lineNumber") }
         },
         modifier = Modifier.weight(1f),
-        maxLines = if (isSelected) Int.MAX_VALUE else 1,
+        maxLines = 1,
       )
     }
     else {

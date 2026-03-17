@@ -85,10 +85,8 @@ class BookmarkToolset : McpToolset {
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
 
-    val lineZeroBased = line - 1
-
-    val actual = lineContent(file, lineZeroBased)
-    if (actual == null || actual.trim() != content.trim()) {
+    val lineZeroBased = resolveLineByContent(file, line - 1, content) ?: run {
+      val actual = lineContent(file, line - 1)
       mcpFail("Line $line contains '${actual ?: ""}', not '$content'. Re-read the file and pass the exact source text of the target line.")
     }
 

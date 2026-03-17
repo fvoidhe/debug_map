@@ -67,7 +67,7 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolea
           withStyle(SpanStyle(color = COLOR_INACTIVE)) { append("  $fileName:$position") }
         },
         modifier = Modifier.weight(1f),
-        maxLines = if (isSelected) Int.MAX_VALUE else 1,
+        maxLines = 1,
       )
     }
     else {
