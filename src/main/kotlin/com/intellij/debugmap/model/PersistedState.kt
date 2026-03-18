@@ -17,10 +17,12 @@ class PersistedBreakpoint {
   var enabled: Boolean? = null
   var logMessage: Boolean? = null
   var logStack: Boolean? = null
+
   /** "ALL", "THREAD", or "NONE". null = IDE default. */
   var suspendPolicy: String? = null
   var masterBreakpointId: Long? = null
   var masterLeaveEnabled: Boolean? = null
+
   /** Stable primary key; 0 means unset (older persisted state) — a new random id is assigned on load. */
   var id: Long = 0
 }
@@ -31,6 +33,7 @@ class PersistedBookmark {
   var line: Int = 0
   var name: String? = null
   var bookmarkType: String = "DEFAULT"
+
   /** Stable primary key; 0 means unset (older persisted state) — a new random id is assigned on load. */
   var id: Long = 0
 }
@@ -48,7 +51,7 @@ class PersistedTopic {
 /** Root persisted state written to workspace.xml. */
 class PersistedState {
   // XML keys kept as legacy names for backward compatibility with existing workspace.xml files.
-  @OptionTag("nextGroupId") var nextTopicId: Int = 1
-  @OptionTag("activeGroupId") var activeTopicId: Int = -1   // -1 means no active topic
-  @Tag("groups") var topics: MutableList<PersistedTopic> = mutableListOf()
+  var nextTopicId: Int = 1
+  var activeTopicId: Int = -1   // -1 means no active topic
+  var topics: MutableList<PersistedTopic> = mutableListOf()
 }
