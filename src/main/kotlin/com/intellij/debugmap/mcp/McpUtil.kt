@@ -16,29 +16,18 @@ internal suspend fun lineContent(file: VirtualFile, lineZeroBased: Int): String?
 }
 
 /**
- * Finds the actual 0-based line number by scanning a ±[tolerance]-line window around [hintLine]
- * for a line whose trimmed text matches [content].
- *
- * Returns the matched line number, or null if no match is found in the window.
- * Prefer this over exact-line validation so that small AI line-number errors (e.g. off-by-N
- * after edits shift the file) are tolerated instead of causing hard failures.
+ * Returns [hintLine] if the trimmed text of that line matches [content], otherwise null.
  */
 internal suspend fun resolveLineByContent(
-  file: VirtualFile,
-  hintLine: Int,
-  content: String,
-  tolerance: Int = 5,
+    file: VirtualFile,
+    hintLine: Int,
+    content: String,
 ): Int? {
   return readAction {
     val doc = FileDocumentManager.getInstance().getDocument(file) ?: return@readAction null
-    val from = maxOf(0, hintLine - tolerance)
-    val to = minOf(doc.lineCount - 1, hintLine + tolerance)
-    val trimmed = content.trim()
-    for (line in from..to) {
-      val start = doc.getLineStartOffset(line)
-      val end = doc.getLineEndOffset(line)
-      if (doc.getText(TextRange(start, end)).trim() == trimmed) return@readAction line
-    }
-    null
+    if (hintLine < 0 || hintLine >= doc.lineCount) return@readAction null
+    val start = doc.getLineStartOffset(hintLine)
+    val end = doc.getLineEndOffset(hintLine)
+    if (doc.getText(TextRange(start, end)).trim() == content.trim()) hintLine else null
   }
 }
