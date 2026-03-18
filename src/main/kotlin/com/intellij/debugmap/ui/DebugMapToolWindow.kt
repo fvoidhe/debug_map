@@ -139,37 +139,6 @@ internal fun DebugMapToolWindow(project: Project) {
   val rightClickInfoState = remember { mutableStateOf<RightClickInfo?>(null) }
   val rightClickInfo by rightClickInfoState
 
-  // Dismiss the context menu on clicks outside the Compose popup window.
-  // AWT events from other Swing components (editor, other tool windows) never reach the
-  // Compose scene, so the popup's own focus-loss dismiss doesn't fire there.
-  //
-  // Button mapping:
-  //   BUTTON1 outside JWindow → dismiss (normal click elsewhere)
-  //   BUTTON1 inside JWindow  → skip   (menu-item selection, let Compose handle)
-  //   BUTTON3 anywhere        → skip   (Compose's onRightClick replaces rightClickInfo directly,
-  //                                     so the old menu closes and a new one opens without us
-  //                                     needing to race-set null first)
-  DisposableEffect(rightClickInfo) {
-    val listener: java.awt.event.AWTEventListener?
-    if (rightClickInfo != null) {
-      listener = java.awt.event.AWTEventListener { event ->
-        if (event is java.awt.event.MouseEvent && event.id == java.awt.event.MouseEvent.MOUSE_PRESSED) {
-          if (event.button == java.awt.event.MouseEvent.BUTTON3) return@AWTEventListener
-          val src = event.source as? java.awt.Component ?: return@AWTEventListener
-          val win = javax.swing.SwingUtilities.getWindowAncestor(src)
-          if (win is javax.swing.JWindow) return@AWTEventListener
-          rightClickInfoState.value = null
-        }
-      }
-      java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(listener, java.awt.AWTEvent.MOUSE_EVENT_MASK)
-    }
-    else {
-      listener = null
-    }
-    onDispose {
-      if (listener != null) java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(listener)
-    }
-  }
 
   Column(modifier = Modifier.fillMaxSize()) {
     Row(

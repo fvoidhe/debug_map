@@ -19,9 +19,9 @@ internal suspend fun lineContent(file: VirtualFile, lineZeroBased: Int): String?
  * Returns [hintLine] if the trimmed text of that line matches [content], otherwise null.
  */
 internal suspend fun resolveLineByContent(
-    file: VirtualFile,
-    hintLine: Int,
-    content: String,
+  file: VirtualFile,
+  hintLine: Int,
+  content: String,
 ): Int? {
   return readAction {
     val doc = FileDocumentManager.getInstance().getDocument(file) ?: return@readAction null
