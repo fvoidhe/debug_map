@@ -1,12 +1,45 @@
 package com.intellij.debugmap.ui.tree
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import com.intellij.debugmap.model.BreakpointDef
 import org.jetbrains.jewel.ui.icon.IntelliJIconKey
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 internal val COLOR_ACTIVE = Color(0xFFFF6B6B.toInt())
 internal val COLOR_INACTIVE = Color(0xFF808080.toInt())
+internal val COLOR_SEARCH_HIGHLIGHT = Color(0x55FFD700)
+
+/**
+ * Appends [text] to the builder, wrapping runs that match [query] (case-insensitive) in a
+ * highlight background span merged on top of [baseStyle]. Non-matching runs are wrapped in
+ * [baseStyle] alone, preserving explicit colour information (e.g. [COLOR_INACTIVE]) on spans that
+ * live inside a larger [buildAnnotatedString] block.
+ */
+internal fun AnnotatedString.Builder.appendHighlighted(text: String, query: String, baseStyle: SpanStyle) {
+  if (text.isEmpty()) return
+  if (query.isBlank()) {
+    withStyle(baseStyle) { append(text) }
+    return
+  }
+  val lowerText = text.lowercase()
+  val lowerQuery = query.lowercase()
+  var pos = 0
+  while (pos < text.length) {
+    val matchIdx = lowerText.indexOf(lowerQuery, pos)
+    if (matchIdx == -1) {
+      withStyle(baseStyle) { append(text.substring(pos)) }
+      break
+    }
+    if (matchIdx > pos) withStyle(baseStyle) { append(text.substring(pos, matchIdx)) }
+    withStyle(baseStyle.merge(SpanStyle(background = COLOR_SEARCH_HIGHLIGHT))) {
+      append(text.substring(matchIdx, matchIdx + lowerQuery.length))
+    }
+    pos = matchIdx + lowerQuery.length
+  }
+}
 
 internal data class BreakpointIcons(
   val normal: IntelliJIconKey,

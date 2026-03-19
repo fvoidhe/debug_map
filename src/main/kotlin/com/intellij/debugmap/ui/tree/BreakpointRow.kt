@@ -24,7 +24,7 @@ import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 @Composable
-internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolean = false) {
+internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolean = false, searchText: String = "") {
   val def = node.def
   val resolved = resolveBreakpointIcon(def, node.isInActiveTopic)
   val fileName = def.fileUrl.substringAfterLast('/')
@@ -64,8 +64,10 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolea
     if (hasName) {
       Text(
         text = buildAnnotatedString {
-          append(def.name)
-          withStyle(SpanStyle(color = COLOR_INACTIVE)) { append("  $fileName:$position") }
+          appendHighlighted(def.name!!, searchText, SpanStyle())
+          append("  ")
+          appendHighlighted(fileName, searchText, SpanStyle(color = COLOR_INACTIVE))
+          withStyle(SpanStyle(color = COLOR_INACTIVE)) { append(":$position") }
         },
         modifier = Modifier.weight(1f),
         maxLines = if (isSelected) Int.MAX_VALUE else 1,
@@ -73,7 +75,10 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolea
     }
     else {
       Text(
-        text = "$fileName:$position",
+        text = buildAnnotatedString {
+          appendHighlighted(fileName, searchText, SpanStyle())
+          append(":$position")
+        },
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.weight(1f),

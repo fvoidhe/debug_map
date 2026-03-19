@@ -8,9 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.input.delete
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +53,9 @@ import org.jetbrains.jewel.foundation.theme.JewelTheme
 import org.jetbrains.jewel.ui.Orientation
 import org.jetbrains.jewel.ui.component.Divider
 import org.jetbrains.jewel.ui.component.IconActionButton
+import org.jetbrains.jewel.ui.component.SelectableIconActionButton
+import org.jetbrains.jewel.ui.component.Text
+import org.jetbrains.jewel.ui.component.TextField
 import org.jetbrains.jewel.ui.component.styling.LazyTreeMetrics
 import org.jetbrains.jewel.ui.component.styling.LazyTreeStyle
 import org.jetbrains.jewel.ui.component.styling.SimpleListItemMetrics
@@ -77,6 +84,13 @@ internal fun DebugMapToolWindow(project: Project) {
   val recentBookmarks by service.recentBookmarks.collectAsState()
   var selectedNodes by remember { mutableStateOf<List<DebugMapNode>>(emptyList()) }
   val treeState = rememberTreeState()
+  var searchVisible by remember { mutableStateOf(false) }
+  val searchFieldState = rememberTextFieldState()
+  val searchText by remember { derivedStateOf { searchFieldState.text.toString() } }
+
+  LaunchedEffect(searchVisible) {
+    if (!searchVisible) searchFieldState.edit { delete(0, length) }
+  }
 
   val selectionKind = computeSelectionKind(selectedNodes)
   val isSingle = selectedNodes.size == 1
@@ -100,39 +114,58 @@ internal fun DebugMapToolWindow(project: Project) {
     )
   }
 
-  val tree = remember(topics, activeTopicId, recentBreakpoints, recentBookmarks) {
+  val tree = remember(topics, activeTopicId, recentBreakpoints, recentBookmarks, searchText) {
     buildTree {
       for (topic in topics) {
-        addNode(
-          data = DebugMapNode.Topic(
-            id = topic.id,
-            name = topic.name,
-            isActive = topic.id == activeTopicId,
-            description = topic.description,
-            status = topic.status,
-            bookmarkCount = topic.bookmarks.size,
-            breakpointCount = topic.breakpoints.size,
-          ),
-          id = "topic-${topic.id}",
-        ) {
-          for (bm in topic.bookmarks) {
-            val bmIndex = recentBookmarks.indexOfFirst { it.topicId == bm.topicId && it.fileUrl == bm.fileUrl && it.line == bm.line }
-            addLeaf(
-              data = DebugMapNode.BookmarkItem(bm, if (bmIndex != -1) bmIndex else null),
-              id = "bm-${topic.id}-${bm.fileUrl}-${bm.line}",
-            )
+        val topicNode = DebugMapNode.Topic(
+          id = topic.id,
+          name = topic.name,
+          isActive = topic.id == activeTopicId,
+          description = topic.description,
+          status = topic.status,
+          bookmarkCount = topic.bookmarks.size,
+          breakpointCount = topic.breakpoints.size,
+        )
+        val topicMatches = matchesSearch(searchText, topic.name, topic.description)
+        val filteredBookmarks = when {
+          searchText.isBlank() || topicMatches -> topic.bookmarks
+          else -> topic.bookmarks.filter { bm ->
+            matchesSearch(searchText, bm.name, bm.fileUrl.substringAfterLast('/'))
           }
-          for (bp in topic.breakpoints) {
-            val index =
-              recentBreakpoints.indexOfFirst { it.topicId == bp.topicId && it.fileUrl == bp.fileUrl && it.line == bp.line && it.column == bp.column }
-            val recentIndex = if (index != -1) index else null
-            addLeaf(
-              data = DebugMapNode.BreakpointItem(bp, recentIndex, topic.id == activeTopicId),
-              id = "bp-${topic.id}-${bp.fileUrl}-${bp.line}-${bp.column}",
-            )
+        }
+        val filteredBreakpoints = when {
+          searchText.isBlank() || topicMatches -> topic.breakpoints
+          else -> topic.breakpoints.filter { bp ->
+            matchesSearch(searchText, bp.name, bp.fileUrl.substringAfterLast('/'), bp.condition, bp.logExpression)
+          }
+        }
+        if (searchText.isBlank() || topicMatches || filteredBookmarks.isNotEmpty() || filteredBreakpoints.isNotEmpty()) {
+          addNode(data = topicNode, id = "topic-${topic.id}") {
+            for (bm in filteredBookmarks) {
+              val bmIndex = recentBookmarks.indexOfFirst { it.topicId == bm.topicId && it.fileUrl == bm.fileUrl && it.line == bm.line }
+              addLeaf(
+                data = DebugMapNode.BookmarkItem(bm, if (bmIndex != -1) bmIndex else null),
+                id = "bm-${topic.id}-${bm.fileUrl}-${bm.line}",
+              )
+            }
+            for (bp in filteredBreakpoints) {
+              val index =
+                recentBreakpoints.indexOfFirst { it.topicId == bp.topicId && it.fileUrl == bp.fileUrl && it.line == bp.line && it.column == bp.column }
+              val recentIndex = if (index != -1) index else null
+              addLeaf(
+                data = DebugMapNode.BreakpointItem(bp, recentIndex, topic.id == activeTopicId),
+                id = "bp-${topic.id}-${bp.fileUrl}-${bp.line}-${bp.column}",
+              )
+            }
           }
         }
       }
+    }
+  }
+
+  LaunchedEffect(searchText) {
+    if (searchText.isNotBlank()) {
+      treeState.openNodes(topics.map { "topic-${it.id}" })
     }
   }
 
@@ -167,13 +200,18 @@ internal fun DebugMapToolWindow(project: Project) {
           selectedNodes = emptyList()
         },
       )
+      val checkoutTopicId: Int? = if (!isSingle) null else when (val node = selectedNodes.firstOrNull()) {
+        is DebugMapNode.Topic -> node.id
+        is DebugMapNode.BookmarkItem -> node.def.topicId
+        is DebugMapNode.BreakpointItem -> node.def.topicId
+        else -> null
+      }
       IconActionButton(
         key = AllIconsKeys.Actions.CheckOut,
         contentDescription = "Checkout Topic",
-        enabled = selectionKind == SelectionKind.TOPICS && isSingle &&
-                  (selectedNodes.firstOrNull() as? DebugMapNode.Topic)?.id != activeTopicId,
+        enabled = checkoutTopicId != null && checkoutTopicId != activeTopicId,
         onClick = {
-          val tId = (selectedNodes.firstOrNull() as? DebugMapNode.Topic)?.id ?: return@IconActionButton
+          val tId = checkoutTopicId ?: return@IconActionButton
           WriteAction.run<Exception> { service.checkout(tId) }
         },
       )
@@ -183,9 +221,24 @@ internal fun DebugMapToolWindow(project: Project) {
         enabled = selectionKind != SelectionKind.NONE && isSingle,
         onClick = { doRename(selectedNodes.firstOrNull(), project, service, topics) },
       )
+      SelectableIconActionButton(
+        key = AllIconsKeys.Actions.Find,
+        contentDescription = "Search",
+        selected = searchVisible,
+        onClick = { searchVisible = !searchVisible },
+      )
     }
 
     Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
+
+    if (searchVisible) {
+      TextField(
+        state = searchFieldState,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+        placeholder = { Text("Search...") },
+      )
+      Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
+    }
 
     DebugMapLazyTree(
       tree = tree,
@@ -216,10 +269,12 @@ internal fun DebugMapToolWindow(project: Project) {
                 is DebugMapNode.Topic -> node.name
                 is DebugMapNode.BookmarkItem -> buildCopyText("bookmark",
                                                               service.buildReference(node.def.fileUrl, node.def.line),
-                                                              node.def.name)
+                                                              node.def.name,
+                                                              node.def.id)
                 is DebugMapNode.BreakpointItem -> buildCopyText("breakpoint",
                                                                 service.buildReference(node.def.fileUrl, node.def.line),
-                                                                node.def.name)
+                                                                node.def.name,
+                                                                node.def.id)
                 else -> null
               }
               if (text != null) {
@@ -256,9 +311,9 @@ internal fun DebugMapToolWindow(project: Project) {
       val node = element.data
       Box(modifier = Modifier.fillMaxWidth()) {
         when (node) {
-          is DebugMapNode.Topic -> TopicRow(node)
-          is DebugMapNode.BookmarkItem -> BookmarkRow(node, isSelected = isSelected)
-          is DebugMapNode.BreakpointItem -> BreakpointRow(node, isSelected = isSelected)
+          is DebugMapNode.Topic -> TopicRow(node, searchText = searchText)
+          is DebugMapNode.BookmarkItem -> BookmarkRow(node, isSelected = isSelected, searchText = searchText)
+          is DebugMapNode.BreakpointItem -> BreakpointRow(node, isSelected = isSelected, searchText = searchText)
         }
         val info = rightClickInfo
         if (info != null && info.key == element.id) {
@@ -298,6 +353,12 @@ internal fun DebugMapToolWindow(project: Project) {
       }
     }
   }
+}
+
+private fun matchesSearch(query: String, vararg texts: String?): Boolean {
+  if (query.isBlank()) return true
+  val q = query.lowercase()
+  return texts.any { it?.lowercase()?.contains(q) == true }
 }
 
 private fun doDelete(

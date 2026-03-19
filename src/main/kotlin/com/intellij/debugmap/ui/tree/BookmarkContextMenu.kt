@@ -64,7 +64,7 @@ internal fun BookmarkContextMenu(
         service.reorderBookmark(node.def.topicId, node.def, 1)
       },
     ) { Text(DebugMapBundle.message("action.move.down")) }
-    copyReferenceItem(buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss, enabled = isSingle)
+    copyReferenceItem(buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name, node.def.id), copyReferenceKeybinding, onDismiss, enabled = isSingle)
     checkoutItem(node.def.topicId, service, onDismiss, enabled = isSingle && node.def.topicId != activeTopicId)
     selectableItem(
       selected = false,

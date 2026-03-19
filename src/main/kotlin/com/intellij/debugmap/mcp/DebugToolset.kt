@@ -100,12 +100,36 @@ class DebugToolset : McpToolset {
     clearDependency: Boolean = false,
     @McpDescription("If true (default), this breakpoint stays permanently enabled after master fires. If false, fires once then disables itself.")
     dependencyLeaveEnabled: Boolean = true,
+    @McpDescription("New 1-based line number for the breakpoint. Requires content for validation. Omit to keep unchanged.")
+    line: Int? = null,
+    @McpDescription("Source text of the new line. Required when line is provided.")
+    content: String? = null,
   ): BreakpointResult {
     val project = currentCoroutineContext().project
     val service = DebugMapService.getInstance(project)
 
     currentCoroutineContext().reportToolActivity("Updating breakpoint id=$id")
     val def = service.findBreakpointById(id) ?: mcpFail("No breakpoint found with id $id")
+
+    if (line != null && content == null) {
+      mcpFail("content is required when changing line")
+    }
+
+    val newLineZeroBased: Int = if (line != null) {
+      val file = VirtualFileManager.getInstance().refreshAndFindFileByUrl(def.fileUrl)
+                 ?: mcpFail("File not found: ${def.fileUrl}")
+      val resolved = resolveLineByContent(file, line - 1, content!!) ?: run {
+        val actual = lineContent(file, line - 1)
+        mcpFail("Line $line contains '${actual ?: ""}', not '$content'. Re-read the file and pass the exact source text of the target line.")
+      }
+      if (!service.ideManager.canPutAt(file, resolved)) {
+        mcpFail("Cannot set breakpoint at line $line — not a valid breakpoint location (no executable code on this line)")
+      }
+      resolved
+    }
+    else {
+      def.line
+    }
 
     // Resolve master dependency: set by id, clear explicitly, or leave unchanged.
     val (newMasterBreakpointId, newMasterLeaveEnabled) = when {
@@ -118,6 +142,7 @@ class DebugToolset : McpToolset {
     }
 
     val updatedDef = def.copy(
+      line = newLineZeroBased,
       name = when {
         description == null -> def.name
         description.isBlank() -> null
@@ -141,7 +166,7 @@ class DebugToolset : McpToolset {
 
     service.updateBreakpointByToolWindow(updatedDef)
 
-    return BreakpointResult(path = def.fileUrl, line = def.line + 1, status = "updated", id = id)
+    return BreakpointResult(path = def.fileUrl, line = newLineZeroBased + 1, status = "updated", id = id)
   }
 
   @McpTool(name = "debug_remove_breakpoint")

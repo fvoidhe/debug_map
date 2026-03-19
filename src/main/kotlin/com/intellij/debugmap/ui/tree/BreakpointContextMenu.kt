@@ -64,7 +64,7 @@ internal fun BreakpointContextMenu(
         service.reorderBreakpoint(node.def.topicId, node.def, 1)
       },
     ) { Text(DebugMapBundle.message("action.move.down")) }
-    copyReferenceItem(buildCopyText("breakpoint", service.buildReference(node.def.fileUrl, node.def.line), node.def.name), copyReferenceKeybinding, onDismiss, enabled = isSingle)
+    copyReferenceItem(buildCopyText("breakpoint", service.buildReference(node.def.fileUrl, node.def.line), node.def.name, node.def.id), copyReferenceKeybinding, onDismiss, enabled = isSingle)
     checkoutItem(node.def.topicId, service, onDismiss, enabled = isSingle && node.def.topicId != activeTopicId)
     selectableItem(
       selected = false,

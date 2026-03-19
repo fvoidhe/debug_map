@@ -44,6 +44,7 @@ class BookmarkToolset : McpToolset {
         if (path != null && !bookmark.fileUrl.contains(path)) continue
         val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(bookmark.fileUrl))
         items.add(BookmarkInfo(
+          id = bookmark.id,
           path = bookmark.fileUrl,
           line = bookmark.line + 1,
           topic = t.name,
@@ -58,13 +59,12 @@ class BookmarkToolset : McpToolset {
     return BookmarkListResult(bookmarks = items, total = items.size)
   }
 
-  @McpTool(name = "debug_bookmark_upsert")
+  @McpTool(name = "debug_bookmark_add")
   @McpDescription("""
-        |Creates or updates a line bookmark at the specified file and line within a topic.
-        |If the bookmark already exists in the topic, updates its description and mnemonic.
-        |If it does not exist, creates it. The topic is created automatically if needed.
+        |Creates a new line bookmark at the specified file and line within a topic.
+        |The topic is created automatically if it does not exist.
     """)
-  suspend fun upsert_bookmark(
+  suspend fun add_bookmark(
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String,
     @McpDescription("1-based line number where the bookmark should be placed")
@@ -73,12 +73,12 @@ class BookmarkToolset : McpToolset {
     content: String,
     @McpDescription("Bookmark topic name. Created automatically if it does not exist.")
     topic: String,
-    @McpDescription("Optional description text for the bookmark. Pass empty string to clear.")
-    description: String? = null,
+    @McpDescription("Description text for the bookmark.")
+    description: String,
     @McpDescription("Optional single-character mnemonic ('0'-'9' or 'A'-'Z'). Leave empty for a plain bookmark.")
     mnemonic: String? = null,
   ): BookmarkResult {
-    currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.upserting.bookmark", path, line))
+    currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.adding.bookmark", path, line))
     val project = currentCoroutineContext().project
     val service = DebugMapService.getInstance(project)
 
@@ -91,41 +91,110 @@ class BookmarkToolset : McpToolset {
     }
 
     val topicId = service.getTopicIdByName(topic) ?: service.createTopic(topic)
-    val existing = service.getTopicBookmarks(topicId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
-
-    if (existing != null) {
-      service.renameBookmark(existing, description ?: "")
-      return BookmarkResult(path = path, line = line, status = "updated")
-    }
-
-    service.addBookmarkByToolWindow(topicId, BookmarkDef(
+    val def = BookmarkDef(
       topicId = topicId,
       fileUrl = file.url,
       line = lineZeroBased,
-      name = description?.takeIf { it.isNotBlank() },
+      name = description.takeIf { it.isNotBlank() },
       type = resolveBookmarkType(mnemonic),
-    ))
+    )
+    service.addBookmarkByToolWindow(topicId, def)
 
-    return BookmarkResult(path = path, line = line, status = "created")
+    return BookmarkResult(id = def.id, path = path, line = line, status = "created")
+  }
+
+  @McpTool(name = "debug_bookmark_update")
+  @McpDescription("""
+        |Updates an existing bookmark identified by its id.
+        |Only the fields you supply are changed; omitted fields keep their current values.
+        |To change the line, you must also supply content (the exact source text of the new line) for validation.
+        |The path and topic cannot be changed.
+    """)
+  suspend fun update_bookmark(
+    @McpDescription("Stable numeric id of the bookmark to update (returned by list and add)")
+    id: Long,
+    @McpDescription("New description text. Pass empty string to clear. Omit to keep unchanged.")
+    description: String? = null,
+    @McpDescription("New single-character mnemonic ('0'-'9' or 'A'-'Z'). Pass empty string to clear. Omit to keep unchanged.")
+    mnemonic: String? = null,
+    @McpDescription("New 1-based line number. Requires content for validation. Omit to keep unchanged.")
+    line: Int? = null,
+    @McpDescription("Source text of the new line. Required when line is provided.")
+    content: String? = null,
+  ): BookmarkResult {
+    currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.updating.bookmark", id))
+    val project = currentCoroutineContext().project
+    val service = DebugMapService.getInstance(project)
+
+    val existing = service.findBookmarkById(id) ?: mcpFail("Bookmark not found: $id")
+
+    if (line != null && content == null) {
+      mcpFail("content is required when changing line")
+    }
+
+    val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(existing.fileUrl))
+               ?: mcpFail("File not found: ${existing.fileUrl}")
+
+    val newLineZeroBased: Int = if (line != null) {
+      resolveLineByContent(file, line - 1, content!!) ?: run {
+        val actual = lineContent(file, line - 1)
+        mcpFail("Line $line contains '${actual ?: ""}', not '$content'. Re-read the file and pass the exact source text of the target line.")
+      }
+    }
+    else {
+      existing.line
+    }
+
+    val newName: String? = when {
+      description == null -> existing.name
+      description.isBlank() -> null
+      else -> description
+    }
+
+    val newType: BookmarkType = when {
+      mnemonic == null -> existing.type
+      mnemonic.isBlank() -> BookmarkType.DEFAULT
+      else -> resolveBookmarkType(mnemonic)
+    }
+
+    val newDef = existing.copy(
+      line = newLineZeroBased,
+      name = newName,
+      type = newType,
+    )
+    service.updateBookmarkByToolWindow(existing, newDef)
+
+    val resultLine = newLineZeroBased + 1
+    return BookmarkResult(id = id, path = existing.fileUrl, line = resultLine, status = "updated")
   }
 
   @McpTool(name = "debug_bookmark_remove")
   @McpDescription("""
-        |Removes the line bookmark at the specified file and line.
-        |If topic is specified, removes only from that topic; otherwise removes from the active topic.
-        |Reports not_found if no matching bookmark exists.
+        |Removes a bookmark by its stable id, or by file and line.
+        |When id is provided, path/line/topic are ignored.
+        |If topic is specified (path+line mode), removes only from that topic; otherwise removes from the active topic.
     """)
   suspend fun remove_bookmark(
+    @McpDescription("Stable bookmark id. When provided, path/line/topic are ignored.")
+    id: Long? = null,
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
-    path: String,
+    path: String = "",
     @McpDescription("1-based line number of the bookmark to remove")
-    line: Int,
+    line: Int = -1,
     @McpDescription("Bookmark topic name. Defaults to the currently active topic if omitted.")
     topic: String? = null,
   ): BookmarkResult {
-    currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.removing.bookmark", path, line))
     val project = currentCoroutineContext().project
     val service = DebugMapService.getInstance(project)
+
+    if (id != null) {
+      currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.removing.bookmark.id", id))
+      val def = service.findBookmarkById(id) ?: mcpFail("Bookmark not found: $id")
+      service.removeBookmarkByToolWindow(def.topicId, def.fileUrl, def.line)
+      return BookmarkResult(id = id, path = def.fileUrl, line = def.line + 1, status = "removed")
+    }
+
+    currentCoroutineContext().reportToolActivity(DebugMapBundle.message("tool.activity.removing.bookmark", path, line))
 
     val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(project.resolveInProject(path))
                ?: mcpFail("File not found: $path")
@@ -139,12 +208,12 @@ class BookmarkToolset : McpToolset {
       service.getActiveTopicId() ?: mcpFail("No active topic")
     }
 
-    val exists = service.getTopicBookmarks(topicId).any { it.fileUrl == file.url && it.line == lineZeroBased }
-    if (!exists) return BookmarkResult(path = path, line = line, status = "not_found")
+    val existing = service.getTopicBookmarks(topicId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
+                   ?: mcpFail("Bookmark not found at $path:$line")
 
     service.removeBookmarkByToolWindow(topicId, file.url, lineZeroBased)
 
-    return BookmarkResult(path = path, line = line, status = "removed")
+    return BookmarkResult(id = existing.id, path = path, line = line, status = "removed")
   }
 
   // ----- helpers -----
@@ -158,6 +227,7 @@ class BookmarkToolset : McpToolset {
 
   @Serializable
   data class BookmarkInfo(
+    val id: Long,
     val path: String,
     val line: Int?,
     val topic: String,
@@ -169,9 +239,10 @@ class BookmarkToolset : McpToolset {
 
   @Serializable
   data class BookmarkResult(
+    val id: Long,
     val path: String,
     val line: Int,
-    /** "created" | "updated" | "removed" | "not_found" */
+    /** "created" | "updated" | "removed" */
     val status: String,
   )
 

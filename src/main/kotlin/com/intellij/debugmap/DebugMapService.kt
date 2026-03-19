@@ -263,6 +263,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   fun findBreakpointById(id: Long): BreakpointDef? =
     breakpointManager.findBreakpointById(id)
 
+  fun findBookmarkById(id: Long): BookmarkDef? =
+    breakpointManager.findBookmarkById(id)
+
   fun getTopicBookmarks(topicId: Int): List<BookmarkDef> =
     breakpointManager.getTopicBookmarks(topicId)
 
@@ -318,10 +321,24 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   /** Called from the tool window or MCP: replaces the def in-memory and applies all properties to the IDE breakpoint if the topic is active. */
   fun updateBreakpointByToolWindow(updatedDef: BreakpointDef) {
+    val existingDef = breakpointManager.findBreakpointById(updatedDef.id)
     breakpointManager.replaceBreakpointDef(updatedDef)
     if (updatedDef.topicId == breakpointManager.activeTopicId) {
-      val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
-      cs.launch { ideManager.applyBreakpointProperties(updatedDef, masterDef) }
+      if (existingDef != null && existingDef.line != updatedDef.line) {
+        // Line changed: the IDE breakpoint is still at the old line, so applyBreakpointProperties
+        // (which looks up by new line) would miss it. Remove the old one and add the new one instead.
+        cs.launch {
+          ideManager.findLineBreakpoint(existingDef.fileUrl, existingDef.line, existingDef.column)
+            ?.let { ideManager.removeBreakpoint(it) }
+          ideManager.addBreakpointDefs(listOf(updatedDef))
+          val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
+          ideManager.applyBreakpointProperties(updatedDef, masterDef)
+        }
+      }
+      else {
+        val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
+        cs.launch { ideManager.applyBreakpointProperties(updatedDef, masterDef) }
+      }
     }
     syncState()
   }
@@ -331,6 +348,26 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     breakpointManager.upsertBreakpointInTopic(topicId, def)
     if (topicId == breakpointManager.activeTopicId) {
       ideManager.addBreakpointDefs(listOf(def))
+    }
+    syncState()
+  }
+
+  /**
+   * Called from MCP: updates a bookmark identified by its id within the same topic.
+   * [existingDef] is the current state; [newDef] has the desired state (same fileUrl, topicId, and id).
+   */
+  fun updateBookmarkByToolWindow(existingDef: BookmarkDef, newDef: BookmarkDef) {
+    require(existingDef.fileUrl == newDef.fileUrl) { "fileUrl must not change" }
+    require(existingDef.id == newDef.id) { "id must not change" }
+    require(existingDef.topicId == newDef.topicId) { "topicId must not change" }
+    val isActive = existingDef.topicId == breakpointManager.activeTopicId
+
+    if (isActive) {
+      ideManager.removeBookmarkDefs(listOf(existingDef))
+    }
+    breakpointManager.replaceBookmarkDef(newDef)
+    if (isActive) {
+      ideManager.addBookmarkDefs(listOf(newDef))
     }
     syncState()
   }

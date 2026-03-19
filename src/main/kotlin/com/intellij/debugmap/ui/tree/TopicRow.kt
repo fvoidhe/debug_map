@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -24,7 +26,7 @@ import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 @Composable
-internal fun TopicRow(node: DebugMapNode.Topic) {
+internal fun TopicRow(node: DebugMapNode.Topic, searchText: String = "") {
   val isClosed = node.status == TopicStatus.CLOSE
   val isPinned = node.status == TopicStatus.PIN
   val textColor = if (isClosed) COLOR_INACTIVE else Color.Unspecified
@@ -46,7 +48,7 @@ internal fun TopicRow(node: DebugMapNode.Topic) {
     }
     Column(modifier = Modifier.weight(1f, fill = false)) {
       Text(
-        text = node.name,
+        text = buildAnnotatedString { appendHighlighted(node.name, searchText, SpanStyle()) },
         fontWeight = if (node.isActive || isPinned) FontWeight.Bold else FontWeight.Normal,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -54,8 +56,9 @@ internal fun TopicRow(node: DebugMapNode.Topic) {
       )
       if (node.description.isNotEmpty()) {
         Text(
-          text = node.description,
-          color = COLOR_INACTIVE,
+          text = buildAnnotatedString {
+            appendHighlighted(node.description, searchText, SpanStyle(color = COLOR_INACTIVE))
+          },
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )

@@ -33,10 +33,11 @@ internal fun copyToClipboard(text: String) {
   CopyPasteManager.getInstance().setContents(StringSelection(text))
 }
 
-internal fun buildCopyText(type: String, reference: String, name: String?): String =
+internal fun buildCopyText(type: String, reference: String, name: String?, id: Long): String =
   buildJsonObject {
     put("type", JsonPrimitive(type))
     put("ref", JsonPrimitive(reference))
+    put("id", JsonPrimitive(id))
     if (!name.isNullOrBlank()) put("name", JsonPrimitive(name))
   }.toString()
 

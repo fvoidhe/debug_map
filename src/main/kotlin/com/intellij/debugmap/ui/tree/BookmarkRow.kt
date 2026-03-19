@@ -23,7 +23,7 @@ import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 @Composable
-internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = false) {
+internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = false, searchText: String = "") {
   val def = node.def
   val fileName = def.fileUrl.substringAfterLast('/')
   val lineNumber = def.line + 1
@@ -50,8 +50,10 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
     if (hasName) {
       Text(
         text = buildAnnotatedString {
-          append(def.name)
-          withStyle(SpanStyle(color = COLOR_INACTIVE)) { append("  $fileName:$lineNumber") }
+          appendHighlighted(def.name!!, searchText, SpanStyle())
+          append("  ")
+          appendHighlighted(fileName, searchText, SpanStyle(color = COLOR_INACTIVE))
+          withStyle(SpanStyle(color = COLOR_INACTIVE)) { append(":$lineNumber") }
         },
         modifier = Modifier.weight(1f),
         maxLines = if (isSelected) Int.MAX_VALUE else 1,
@@ -59,7 +61,10 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
     }
     else {
       Text(
-        text = "$fileName:$lineNumber",
+        text = buildAnnotatedString {
+          appendHighlighted(fileName, searchText, SpanStyle())
+          append(":$lineNumber")
+        },
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.weight(1f),
