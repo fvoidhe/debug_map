@@ -10,7 +10,7 @@ abstract class LocationDef(
   open val line: Int,
   open val name: String? = null,
   /** Stable random primary key. Generated once on first creation; preserved across copy() and upserts. */
-  open val id: Long = kotlin.random.Random.nextLong(),
+  open val id: String = java.util.UUID.randomUUID().toString(),
 ) : Comparable<LocationDef> {
 
   /** Returns true if [other] refers to the same breakable/bookmarkable position as this def. */

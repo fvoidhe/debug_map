@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.delete
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -121,12 +120,11 @@ internal fun DebugMapToolWindow(project: Project) {
           id = topic.id,
           name = topic.name,
           isActive = topic.id == activeTopicId,
-          description = topic.description,
           status = topic.status,
           bookmarkCount = topic.bookmarks.size,
           breakpointCount = topic.breakpoints.size,
         )
-        val topicMatches = matchesSearch(searchText, topic.name, topic.description)
+        val topicMatches = matchesSearch(searchText, topic.name)
         val filteredBookmarks = when {
           searchText.isBlank() || topicMatches -> topic.bookmarks
           else -> topic.bookmarks.filter { bm ->
@@ -200,7 +198,8 @@ internal fun DebugMapToolWindow(project: Project) {
           selectedNodes = emptyList()
         },
       )
-      val checkoutTopicId: Int? = if (!isSingle) null else when (val node = selectedNodes.firstOrNull()) {
+      val checkoutTopicId: Int? = if (!isSingle) null
+      else when (val node = selectedNodes.firstOrNull()) {
         is DebugMapNode.Topic -> node.id
         is DebugMapNode.BookmarkItem -> node.def.topicId
         is DebugMapNode.BreakpointItem -> node.def.topicId

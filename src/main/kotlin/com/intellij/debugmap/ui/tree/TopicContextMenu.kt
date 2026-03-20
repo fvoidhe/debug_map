@@ -171,22 +171,6 @@ internal fun TopicContextMenu(
         ) { Text(DebugMapBundle.message("action.close.topic")) }
       }
     }
-    separator()
-    selectableItem(
-      selected = false,
-      iconKey = AllIconsKeys.Actions.Edit,
-      enabled = isSingle,
-      onClick = {
-        onDismiss()
-        val current = topics.find { it.id == node.id }?.description ?: ""
-        val desc = Messages.showInputDialog(
-          project,
-          DebugMapBundle.message("dialog.edit.description.label"),
-          DebugMapBundle.message("dialog.edit.description.title"),
-          null, current, null,
-        ) ?: return@selectableItem
-        service.updateTopicDescription(node.id, desc.trim())
-      },
-    ) { Text(DebugMapBundle.message("action.edit.description")) }
+    exportImportItems(nodes.map { it.id }, project, service, onDismiss)
   }
 }

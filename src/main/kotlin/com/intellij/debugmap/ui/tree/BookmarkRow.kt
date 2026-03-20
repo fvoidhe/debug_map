@@ -50,13 +50,14 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
     if (hasName) {
       Text(
         text = buildAnnotatedString {
-          appendHighlighted(def.name!!, searchText, SpanStyle())
+          appendHighlighted(def.name, searchText, SpanStyle())
           append("  ")
           appendHighlighted(fileName, searchText, SpanStyle(color = COLOR_INACTIVE))
           withStyle(SpanStyle(color = COLOR_INACTIVE)) { append(":$lineNumber") }
         },
         modifier = Modifier.weight(1f),
         maxLines = if (isSelected) Int.MAX_VALUE else 1,
+        overflow = TextOverflow.Ellipsis,
       )
     }
     else {

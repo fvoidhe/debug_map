@@ -54,15 +54,6 @@ internal fun TopicRow(node: DebugMapNode.Topic, searchText: String = "") {
         overflow = TextOverflow.Ellipsis,
         color = textColor,
       )
-      if (node.description.isNotEmpty()) {
-        Text(
-          text = buildAnnotatedString {
-            appendHighlighted(node.description, searchText, SpanStyle(color = COLOR_INACTIVE))
-          },
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-      }
     }
     if (isPinned) {
       Icon(key = AllIconsKeys.Actions.PinTab, contentDescription = null, modifier = Modifier.size(12.dp))

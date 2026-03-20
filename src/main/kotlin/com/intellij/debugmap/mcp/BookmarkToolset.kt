@@ -111,8 +111,8 @@ class BookmarkToolset : McpToolset {
         |The path and topic cannot be changed.
     """)
   suspend fun update_bookmark(
-    @McpDescription("Stable numeric id of the bookmark to update (returned by list and add)")
-    id: Long,
+    @McpDescription("Stable id of the bookmark to update (returned by list and add)")
+    id: String,
     @McpDescription("New description text. Pass empty string to clear. Omit to keep unchanged.")
     description: String? = null,
     @McpDescription("New single-character mnemonic ('0'-'9' or 'A'-'Z'). Pass empty string to clear. Omit to keep unchanged.")
@@ -176,7 +176,7 @@ class BookmarkToolset : McpToolset {
     """)
   suspend fun remove_bookmark(
     @McpDescription("Stable bookmark id. When provided, path/line/topic are ignored.")
-    id: Long? = null,
+    id: String? = null,
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String = "",
     @McpDescription("1-based line number of the bookmark to remove")
@@ -227,7 +227,7 @@ class BookmarkToolset : McpToolset {
 
   @Serializable
   data class BookmarkInfo(
-    val id: Long,
+    val id: String,
     val path: String,
     val line: Int?,
     val topic: String,
@@ -239,7 +239,7 @@ class BookmarkToolset : McpToolset {
 
   @Serializable
   data class BookmarkResult(
-    val id: Long,
+    val id: String,
     val path: String,
     val line: Int,
     /** "created" | "updated" | "removed" */

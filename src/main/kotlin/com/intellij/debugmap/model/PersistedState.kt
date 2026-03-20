@@ -20,11 +20,11 @@ class PersistedBreakpoint {
 
   /** "ALL", "THREAD", or "NONE". null = IDE default. */
   var suspendPolicy: String? = null
-  var masterBreakpointId: Long? = null
+  var masterBreakpointId: String? = null
   var masterLeaveEnabled: Boolean? = null
 
-  /** Stable primary key; 0 means unset (older persisted state) — a new random id is assigned on load. */
-  var id: Long = 0
+  /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
+  var id: String = ""
 }
 
 /** XML-serializable bookmark bean. */
@@ -34,15 +34,14 @@ class PersistedBookmark {
   var name: String? = null
   var bookmarkType: String = "DEFAULT"
 
-  /** Stable primary key; 0 means unset (older persisted state) — a new random id is assigned on load. */
-  var id: Long = 0
+  /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
+  var id: String = ""
 }
 
 /** XML-serializable topic bean (includes its breakpoints and bookmarks). */
 class PersistedTopic {
   var id: Int = 0
   var name: String = ""
-  var description: String = ""
   var status: String = "OPEN"
   var breakpoints: MutableList<PersistedBreakpoint> = mutableListOf()
   var bookmarks: MutableList<PersistedBookmark> = mutableListOf()

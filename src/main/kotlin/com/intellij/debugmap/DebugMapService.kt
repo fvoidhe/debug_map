@@ -1,6 +1,7 @@
 package com.intellij.debugmap
 
 import com.intellij.debugmap.manager.BreakpointManager
+import com.intellij.debugmap.manager.ParsedImport
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.TopicData
@@ -119,7 +120,6 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
       PersistedTopic().also { pg ->
         pg.id = topic.id
         pg.name = topic.name
-        pg.description = topic.description
         pg.status = topic.status.name
         pg.breakpoints = topic.breakpoints.map { def ->
           PersistedBreakpoint().also { pb ->
@@ -162,7 +162,6 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
       TopicData(
         id = pg.id,
         name = pg.name,
-        description = pg.description,
         status = runCatching { TopicStatus.valueOf(pg.status) }.getOrDefault(TopicStatus.OPEN),
         breakpoints = pg.breakpoints.map { pb ->
           BreakpointDef(
@@ -180,7 +179,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             suspendPolicy = pb.suspendPolicy,
             masterBreakpointId = pb.masterBreakpointId,
             masterLeaveEnabled = pb.masterLeaveEnabled,
-            id = if (pb.id != 0L) pb.id else kotlin.random.Random.nextLong(),
+            id = pb.id.ifEmpty { java.util.UUID.randomUUID().toString() },
           )
         },
         bookmarks = pg.bookmarks.map { pb ->
@@ -190,7 +189,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             line = pb.line,
             name = pb.name,
             type = runCatching { BookmarkType.valueOf(pb.bookmarkType) }.getOrDefault(BookmarkType.DEFAULT),
-            id = if (pb.id != 0L) pb.id else kotlin.random.Random.nextLong(),
+            id = if (pb.id.isNotEmpty()) pb.id else java.util.UUID.randomUUID().toString(),
           )
         },
       )
@@ -214,11 +213,6 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     if (topicId == breakpointManager.activeTopicId && oldName != null) {
       cs.launch { ideManager.renameGroup(oldName, name) }
     }
-    syncState()
-  }
-
-  fun updateTopicDescription(topicId: Int, description: String) {
-    breakpointManager.updateTopicDescription(topicId, description)
     syncState()
   }
 
@@ -260,10 +254,10 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   fun getTopicBreakpoints(topicId: Int): List<BreakpointDef> =
     breakpointManager.getTopicBreakpoints(topicId)
 
-  fun findBreakpointById(id: Long): BreakpointDef? =
+  fun findBreakpointById(id: String): BreakpointDef? =
     breakpointManager.findBreakpointById(id)
 
-  fun findBookmarkById(id: Long): BookmarkDef? =
+  fun findBookmarkById(id: String): BookmarkDef? =
     breakpointManager.findBookmarkById(id)
 
   fun getTopicBookmarks(topicId: Int): List<BookmarkDef> =
@@ -411,6 +405,44 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   }
 
   fun buildReference(fileUrl: String, line: Int): String = ideManager.buildReference(fileUrl, line)
+
+  fun exportTopics(topicIds: List<Int>): String {
+    val topics = topicIds.mapNotNull { breakpointManager.getTopic(it) }
+    return BreakpointManager.exportTopicsToJson(topics)
+  }
+
+  fun parseImportJson(json: String): ParsedImport =
+    BreakpointManager.parseImportJson(json)
+
+  /**
+   * Applies parsed import data. Topics whose names conflict with existing ones are overwritten
+   * if [overwriteExisting] is true, otherwise skipped. The active topic is never overwritten.
+   * Returns the number of topics actually imported.
+   */
+  fun applyImport(importedTopics: List<TopicData>, overwriteExisting: Boolean): Int {
+    var count = 0
+    for (topic in importedTopics) {
+      val existingId = breakpointManager.getTopicIdByName(topic.name)
+      if (existingId != null) {
+        if (!overwriteExisting) continue
+        if (existingId == breakpointManager.activeTopicId) continue
+        breakpointManager.deleteTopic(existingId)
+      }
+      val newId = breakpointManager.createTopic(topic.name)
+      if (topic.status != TopicStatus.OPEN) breakpointManager.updateTopicStatus(newId, topic.status)
+      for (bp in topic.breakpoints) {
+        breakpointManager.upsertBreakpointInTopic(newId, bp.copy(topicId = newId,
+                                                                  id = java.util.UUID.randomUUID().toString()))
+      }
+      for (bm in topic.bookmarks) {
+        breakpointManager.upsertBookmarkInTopic(newId, bm.copy(topicId = newId,
+                                                               id = java.util.UUID.randomUUID().toString()))
+      }
+      count++
+    }
+    syncState()
+    return count
+  }
 
   /** Must be called within a writeAction. Switches active topic and syncs IDE breakpoints. */
   fun checkout(targetTopicId: Int?) {

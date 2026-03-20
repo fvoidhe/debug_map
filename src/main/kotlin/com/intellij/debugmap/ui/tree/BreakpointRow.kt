@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment.Companion.BottomEnd
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -64,13 +65,14 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolea
     if (hasName) {
       Text(
         text = buildAnnotatedString {
-          appendHighlighted(def.name!!, searchText, SpanStyle())
+          appendHighlighted(def.name, searchText, SpanStyle())
           append("  ")
           appendHighlighted(fileName, searchText, SpanStyle(color = COLOR_INACTIVE))
           withStyle(SpanStyle(color = COLOR_INACTIVE)) { append(":$position") }
         },
         modifier = Modifier.weight(1f),
         maxLines = if (isSelected) Int.MAX_VALUE else 1,
+        overflow = TextOverflow.Ellipsis,
       )
     }
     else {

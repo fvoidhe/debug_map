@@ -9,7 +9,6 @@ internal sealed class DebugMapNode {
     val id: Int,
     val name: String,
     val isActive: Boolean,
-    val description: String,
     val status: TopicStatus,
     val bookmarkCount: Int,
     val breakpointCount: Int,

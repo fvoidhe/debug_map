@@ -79,7 +79,7 @@ class DebugToolset : McpToolset {
     """)
   suspend fun update_breakpoint(
     @McpDescription("Stable breakpoint id returned by debug_list_breakpoints or debug_add_breakpoint.")
-    id: Long,
+    id: String,
     @McpDescription("Enable or disable the breakpoint")
     enabled: Boolean? = null,
     @McpDescription("Human-readable label for this breakpoint. Pass empty string to clear.")
@@ -95,7 +95,7 @@ class DebugToolset : McpToolset {
     @McpDescription("Suspend policy: ALL, THREAD, or NONE.")
     suspendPolicy: String? = null,
     @McpDescription("Id of the master breakpoint to depend on. Omit to leave the dependency unchanged.")
-    dependsOnId: Long? = null,
+    dependsOnId: String? = null,
     @McpDescription("Set to true to remove the existing master-breakpoint dependency.")
     clearDependency: Boolean = false,
     @McpDescription("If true (default), this breakpoint stays permanently enabled after master fires. If false, fires once then disables itself.")
@@ -177,7 +177,7 @@ class DebugToolset : McpToolset {
     """)
   suspend fun remove_breakpoint(
     @McpDescription("Stable breakpoint id. When provided, path/line/topic are ignored.")
-    id: Long? = null,
+    id: String? = null,
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
     path: String = "",
     @McpDescription("1-based line number of the breakpoint to remove")
@@ -203,11 +203,11 @@ class DebugToolset : McpToolset {
     val activeTopicId = resolveTopicId(service, topic)
 
     val exists = service.getTopicBreakpoints(activeTopicId).any { it.fileUrl == file.url && it.line == lineZeroBased }
-    if (!exists) return BreakpointResult(path = path, line = line, status = "not_found", id = 0L)
+    if (!exists) return BreakpointResult(path = path, line = line, status = "not_found", id = "")
 
     service.removeBreakpointByToolWindow(activeTopicId, file.url, lineZeroBased)
 
-    return BreakpointResult(path = path, line = line, status = "removed", id = 0L)
+    return BreakpointResult(path = path, line = line, status = "removed", id = "")
   }
 
   @McpTool(name = "debug_list_breakpoints")
@@ -274,7 +274,6 @@ class DebugToolset : McpToolset {
         TopicInfo(
           name = t.name,
           active = t.id == activeTopicId,
-          description = t.description.takeIf { it.isNotEmpty() },
           status = t.status.name,
           breakpointCount = t.breakpoints.size,
           bookmarkCount = t.bookmarks.size,
@@ -303,13 +302,13 @@ class DebugToolset : McpToolset {
     /** "created" | "updated" | "removed" | "not_found" */
     val status: String,
     /** Stable primary key of the breakpoint. */
-    val id: Long = 0L,
+    val id: String = "",
   )
 
   @Serializable
   data class BreakpointInfo(
     /** Stable primary key — use this in debug_update_breakpoint and debug_remove_breakpoint instead of path+line. */
-    val id: Long,
+    val id: String,
     val path: String,
     val line: Int,
     val topic: String,
@@ -322,7 +321,7 @@ class DebugToolset : McpToolset {
     /** "ALL" | "THREAD" | "NONE" */
     val suspendPolicy: String? = null,
     val content: String? = null,
-    val dependsOnId: Long? = null,
+    val dependsOnId: String? = null,
     val dependencyLeaveEnabled: Boolean? = null,
   )
 

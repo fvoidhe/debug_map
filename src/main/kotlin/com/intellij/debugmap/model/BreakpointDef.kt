@@ -1,5 +1,13 @@
 package com.intellij.debugmap.model
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
+
 data class BreakpointDef(
   override val topicId: Int,
   override val fileUrl: String,
@@ -19,12 +27,54 @@ data class BreakpointDef(
   /** Suspend policy name: "ALL", "THREAD", or "NONE". null means IDE default ("ALL"). */
   val suspendPolicy: String? = null,
   /** Stable id of the master breakpoint this one depends on, or null if no dependency. */
-  val masterBreakpointId: Long? = null,
+  val masterBreakpointId: String? = null,
   /** If true, this breakpoint stays enabled after the master fires; if false, fires once then disables. */
   val masterLeaveEnabled: Boolean? = null,
-  override val id: Long = kotlin.random.Random.nextLong(),
+  override val id: String = java.util.UUID.randomUUID().toString(),
 ) : LocationDef(topicId, fileUrl, line, name, id) {
 
   override fun sameLocation(other: LocationDef): Boolean =
     other is BreakpointDef && fileUrl == other.fileUrl && line == other.line && column == other.column
+
+  fun toJson(): JsonObject = buildJsonObject {
+    put("fileUrl", JsonPrimitive(fileUrl))
+    put("line", JsonPrimitive(line))
+    if (column != 0) put("column", JsonPrimitive(column))
+    put("typeId", JsonPrimitive(typeId))
+    condition?.let { put("condition", JsonPrimitive(it)) }
+    logExpression?.let { put("logExpression", JsonPrimitive(it)) }
+    name?.let { put("name", JsonPrimitive(it)) }
+    enabled?.let { put("enabled", JsonPrimitive(it)) }
+    logMessage?.let { put("logMessage", JsonPrimitive(it)) }
+    logStack?.let { put("logStack", JsonPrimitive(it)) }
+    suspendPolicy?.let { put("suspendPolicy", JsonPrimitive(it)) }
+    masterBreakpointId?.let { put("masterBreakpointId", JsonPrimitive(it)) }
+    masterLeaveEnabled?.let { put("masterLeaveEnabled", JsonPrimitive(it)) }
+  }
+
+  companion object {
+    /** Parses a breakpoint from JSON. Throws [IllegalArgumentException] if required fields are missing. */
+    fun fromJson(obj: JsonObject): BreakpointDef {
+      val fileUrl = obj["fileUrl"]?.jsonPrimitive?.contentOrNull
+        ?: throw IllegalArgumentException("missing fileUrl")
+      val line = obj["line"]?.jsonPrimitive?.intOrNull
+        ?: throw IllegalArgumentException("missing line")
+      return BreakpointDef(
+        topicId = 0,
+        fileUrl = fileUrl,
+        line = line,
+        column = obj["column"]?.jsonPrimitive?.intOrNull ?: 0,
+        typeId = obj["typeId"]?.jsonPrimitive?.contentOrNull ?: "java-line",
+        condition = obj["condition"]?.jsonPrimitive?.contentOrNull,
+        logExpression = obj["logExpression"]?.jsonPrimitive?.contentOrNull,
+        name = obj["name"]?.jsonPrimitive?.contentOrNull,
+        enabled = obj["enabled"]?.jsonPrimitive?.booleanOrNull,
+        logMessage = obj["logMessage"]?.jsonPrimitive?.booleanOrNull,
+        logStack = obj["logStack"]?.jsonPrimitive?.booleanOrNull,
+        suspendPolicy = obj["suspendPolicy"]?.jsonPrimitive?.contentOrNull,
+        masterBreakpointId = obj["masterBreakpointId"]?.jsonPrimitive?.contentOrNull,
+        masterLeaveEnabled = obj["masterLeaveEnabled"]?.jsonPrimitive?.booleanOrNull,
+      )
+    }
+  }
 }

@@ -5,8 +5,21 @@ import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.model.TopicStatus
 import com.intellij.debugmap.model.LocationDef
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+
+data class ParsedImport(
+  val topics: List<TopicData>,
+  val errors: List<String>,
+)
 
 class BreakpointManager {
 
@@ -27,10 +40,10 @@ class BreakpointManager {
   private val nameToId = mutableMapOf<String, Int>()
 
   /** Secondary index: breakpoint id → BreakpointDef for O(1) id-based lookup. */
-  private val idMap = mutableMapOf<Long, BreakpointDef>()
+  private val idMap = mutableMapOf<String, BreakpointDef>()
 
   /** Secondary index: bookmark id → BookmarkDef for O(1) id-based lookup. */
-  private val bookmarkIdMap = mutableMapOf<Long, BookmarkDef>()
+  private val bookmarkIdMap = mutableMapOf<String, BookmarkDef>()
 
   val nextTopicId: Int get() = lock.withLock { _nextTopicId }
   var activeTopicId: Int?
@@ -59,11 +72,6 @@ class BreakpointManager {
     nameToId.remove(topic.name)
     nameToId[name] = id
     topicMap[id] = topic.copy(name = name)
-  }
-
-  fun updateTopicDescription(id: Int, description: String): Unit = lock.withLock {
-    val topic = topicMap[id] ?: return@withLock
-    topicMap[id] = topic.copy(description = description)
   }
 
   fun updateTopicStatus(id: Int, status: TopicStatus): Unit = lock.withLock {
@@ -163,7 +171,7 @@ class BreakpointManager {
   }
 
   /** Finds a breakpoint by its stable primary key across all topics. */
-  fun findBreakpointById(id: Long): BreakpointDef? = lock.withLock { idMap[id] }
+  fun findBreakpointById(id: String): BreakpointDef? = lock.withLock { idMap[id] }
 
   /**
    * Replaces the stored def for a breakpoint identified by [def.id].
@@ -231,7 +239,7 @@ class BreakpointManager {
   }
 
   /** Finds a bookmark by its stable primary key across all topics. */
-  fun findBookmarkById(id: Long): BookmarkDef? = lock.withLock { bookmarkIdMap[id] }
+  fun findBookmarkById(id: String): BookmarkDef? = lock.withLock { bookmarkIdMap[id] }
 
   /**
    * Replaces the stored def for a bookmark identified by [def.id] within the same topic.
@@ -320,5 +328,33 @@ class BreakpointManager {
   private fun insertAtStartOfSection(id: Int, status: TopicStatus) {
     val idx = topicOrder.indexOfFirst { (topicMap[it]?.status?.ordinal ?: Int.MAX_VALUE) >= status.ordinal }
     if (idx < 0) topicOrder.addLast(id) else topicOrder.add(idx, id)
+  }
+
+  companion object {
+
+    fun exportTopicsToJson(topics: List<TopicData>): String = buildJsonObject {
+      put("version", JsonPrimitive(1))
+      put("topics", buildJsonArray { for (topic in topics) add(topic.toJson()) })
+    }.toString()
+
+    fun parseImportJson(json: String): ParsedImport {
+      val errors = mutableListOf<String>()
+      return try {
+        val root = Json.parseToJsonElement(json).jsonObject
+        val version = root["version"]?.jsonPrimitive?.intOrNull ?: 1
+        if (version > 1) errors.add("File was saved with a newer format version ($version); some fields may not be imported.")
+        val topicsArray = root["topics"]?.jsonArray
+          ?: return ParsedImport(emptyList(), listOf("Missing 'topics' field in JSON"))
+        val topics = mutableListOf<TopicData>()
+        topicsArray.forEachIndexed { i, el ->
+          runCatching { topics.add(TopicData.fromJson(el.jsonObject, errors)) }
+            .onFailure { errors.add("Topic #${i + 1}: ${it.message}") }
+        }
+        ParsedImport(topics, errors)
+      }
+      catch (e: Exception) {
+        ParsedImport(emptyList(), listOf("Failed to parse JSON: ${e.message}"))
+      }
+    }
   }
 }

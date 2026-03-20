@@ -12,6 +12,7 @@ import com.intellij.debugmap.ui.DebugMapNode
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import org.jetbrains.jewel.ui.component.separator
 import org.jetbrains.jewel.ui.component.PopupMenu
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
@@ -97,5 +98,6 @@ internal fun BookmarkContextMenu(
       val key = if (nodes.size == 1) "action.delete.bookmark" else "action.delete.bookmarks"
       Text(DebugMapBundle.message(key))
     }
+    exportImportItems(nodes.map { it.def.topicId }.distinct(), project, service, onDismiss)
   }
 }
