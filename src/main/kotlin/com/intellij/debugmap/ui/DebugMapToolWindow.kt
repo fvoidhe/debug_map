@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.input.delete
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -52,6 +53,7 @@ import org.jetbrains.jewel.foundation.theme.JewelTheme
 import org.jetbrains.jewel.ui.Orientation
 import org.jetbrains.jewel.ui.component.Divider
 import org.jetbrains.jewel.ui.component.IconActionButton
+import org.jetbrains.jewel.ui.component.SelectableIconActionButton
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.component.TextField
 import org.jetbrains.jewel.ui.component.styling.LazyTreeMetrics
@@ -82,8 +84,13 @@ internal fun DebugMapToolWindow(project: Project) {
   val recentBookmarks by service.recentBookmarks.collectAsState()
   var selectedNodes by remember { mutableStateOf<List<DebugMapNode>>(emptyList()) }
   val treeState = rememberTreeState()
+  var searchVisible by remember { mutableStateOf(false) }
   val searchFieldState = rememberTextFieldState()
   val searchText by remember { derivedStateOf { searchFieldState.text.toString() } }
+
+  LaunchedEffect(searchVisible) {
+    if (!searchVisible) searchFieldState.edit { delete(0, length) }
+  }
 
   val selectionKind = computeSelectionKind(selectedNodes)
   val isSingle = selectedNodes.size == 1
@@ -214,16 +221,24 @@ internal fun DebugMapToolWindow(project: Project) {
         enabled = selectionKind != SelectionKind.NONE && isSingle,
         onClick = { doRename(selectedNodes.firstOrNull(), project, service, topics) },
       )
+      SelectableIconActionButton(
+        key = AllIconsKeys.Actions.Find,
+        contentDescription = "Search",
+        selected = searchVisible,
+        onClick = { searchVisible = !searchVisible },
+      )
     }
 
     Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
 
-    TextField(
-      state = searchFieldState,
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-      placeholder = { Text("Search...") },
-    )
-    Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
+    if (searchVisible) {
+      TextField(
+        state = searchFieldState,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+        placeholder = { Text("Search...") },
+      )
+      Divider(orientation = Orientation.Horizontal, modifier = Modifier.fillMaxWidth())
+    }
 
     DebugMapLazyTree(
       tree = tree,
