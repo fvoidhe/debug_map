@@ -374,6 +374,13 @@ class BreakpointManager {
     topicMap[topicId] = topic.copy(breakpoints = topic.breakpoints.sorted())
   }
 
+  /** Moves [topicId] to the front of its status section. No-op if the topic does not exist. */
+  fun promoteTopicToTop(topicId: Int): Unit = lock.withLock {
+    val status = topicMap[topicId]?.status ?: return@withLock
+    topicOrder.remove(topicId)
+    insertAtStartOfSection(topicId, status)
+  }
+
   /** Inserts [id] at the start of the [status] section in [topicOrder], maintaining PIN→OPEN→CLOSE order. */
   private fun insertAtStartOfSection(id: Int, status: TopicStatus) {
     val idx = topicOrder.indexOfFirst { (topicMap[it]?.status?.ordinal ?: Int.MAX_VALUE) >= status.ordinal }

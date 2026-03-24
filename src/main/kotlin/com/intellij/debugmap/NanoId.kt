@@ -5,8 +5,8 @@ import java.security.SecureRandom
 private val NANO_ID_ALPHABET = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict".toCharArray()
 private val RANDOM = SecureRandom()
 
-/** Generates a NanoID-compatible random string (URL-safe alphabet, default 21 characters). */
-fun generateNanoId(size: Int = 21): String {
+/** Generates a NanoID-compatible random string (URL-safe alphabet, default 8 characters). */
+fun generateNanoId(size: Int = 8): String {
   val mask = (2 shl (31 - Integer.numberOfLeadingZeros(NANO_ID_ALPHABET.size - 1))) - 1
   val step = (1.6 * mask * size / NANO_ID_ALPHABET.size).toInt() + 1
   val result = CharArray(size)

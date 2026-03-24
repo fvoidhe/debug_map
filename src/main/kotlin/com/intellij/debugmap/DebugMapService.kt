@@ -199,7 +199,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             suspendPolicy = pb.suspendPolicy,
             masterBreakpointId = pb.masterBreakpointId,
             masterLeaveEnabled = pb.masterLeaveEnabled,
-            id = pb.id.ifEmpty { java.util.UUID.randomUUID().toString() },
+            id = pb.id.ifEmpty { generateNanoId() },
             structuralPath = pb.anchorStructuralPath,
             content = pb.anchorContent,
             status = runCatching { LocationStatus.valueOf(pb.status) }.getOrDefault(LocationStatus.NORMAL),
@@ -212,7 +212,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             line = pb.line,
             name = pb.name,
             type = runCatching { BookmarkType.valueOf(pb.bookmarkType) }.getOrDefault(BookmarkType.DEFAULT),
-            id = if (pb.id.isNotEmpty()) pb.id else java.util.UUID.randomUUID().toString(),
+            id = pb.id.ifEmpty { generateNanoId() },
             structuralPath = pb.anchorStructuralPath,
             content = pb.anchorContent,
             status = runCatching { LocationStatus.valueOf(pb.status) }.getOrDefault(LocationStatus.NORMAL),
@@ -502,6 +502,11 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   fun sortBreakpointsByFile(topicId: Int) {
     breakpointManager.sortBreakpointsByFile(topicId)
+    syncState()
+  }
+
+  fun promoteTopicToTop(topicId: Int) {
+    breakpointManager.promoteTopicToTop(topicId)
     syncState()
   }
 

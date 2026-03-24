@@ -63,6 +63,7 @@ class DebugToolset : McpToolset {
       name = description.takeIf { it.isNotBlank() },
     )
     service.addBreakpointByToolWindow(topicId, def)
+    service.promoteTopicToTop(topicId)
 
     return BreakpointResult(path = path, line = line, status = "created", id = def.id)
   }
@@ -325,7 +326,7 @@ class DebugToolset : McpToolset {
     val dependsOnId: String? = null,
     val dependencyLeaveEnabled: Boolean? = null,
     /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
-    val status: String = "NORMAL",
+    val status: String,
   )
 
   @Serializable

@@ -101,6 +101,7 @@ class BookmarkToolset : McpToolset {
       type = resolveBookmarkType(mnemonic),
     )
     service.addBookmarkByToolWindow(topicId, def)
+    service.promoteTopicToTop(topicId)
 
     return BookmarkResult(id = def.id, path = path, line = line, status = "created")
   }
@@ -238,7 +239,7 @@ class BookmarkToolset : McpToolset {
     val mnemonic: String? = null,
     val content: String? = null,
     /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
-    val status: String = "NORMAL",
+    val status: String,
   )
 
   @Serializable
