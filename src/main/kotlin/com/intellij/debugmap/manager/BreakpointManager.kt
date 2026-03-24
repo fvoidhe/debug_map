@@ -2,9 +2,9 @@ package com.intellij.debugmap.manager
 
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
+import com.intellij.debugmap.model.LocationDef
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.model.TopicStatus
-import com.intellij.debugmap.model.LocationDef
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject

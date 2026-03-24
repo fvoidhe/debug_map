@@ -52,7 +52,8 @@ class BookmarkToolset : McpToolset {
           active = isActive,
           name = bookmark.name,
           mnemonic = bookmark.type.takeIf { it != BookmarkType.DEFAULT }?.mnemonic?.toString(),
-          content = file?.let { lineContent(it, bookmark.line) }
+          content = file?.let { lineContent(it, bookmark.line) },
+          status = bookmark.status.name,
         ))
       }
     }
@@ -236,6 +237,8 @@ class BookmarkToolset : McpToolset {
     val name: String? = null,
     val mnemonic: String? = null,
     val content: String? = null,
+    /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
+    val status: String = "NORMAL",
   )
 
   @Serializable

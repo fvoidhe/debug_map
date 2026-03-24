@@ -1,5 +1,7 @@
 package com.intellij.debugmap.model
 
+import com.intellij.debugmap.generateNanoId
+
 /**
  * Base class for a location-based definition owned by a topic.
  * [line] is 0-based (matching [com.intellij.xdebugger.breakpoints.XLineBreakpoint.getLine]).
@@ -10,7 +12,12 @@ abstract class LocationDef(
   open val line: Int,
   open val name: String? = null,
   /** Stable random primary key. Generated once on first creation; preserved across copy() and upserts. */
-  open val id: String = java.util.UUID.randomUUID().toString(),
+  open val id: String = generateNanoId(),
+  /** Structural PSI path of the anchor line (e.g. "MyClass:myMethod"), null if unavailable. */
+  open val structuralPath: String? = null,
+  /** Trimmed source text of the anchor line, null if unavailable. */
+  open val content: String? = null,
+  open val status: LocationStatus = LocationStatus.NORMAL,
 ) : Comparable<LocationDef> {
 
   /** Returns true if [other] refers to the same breakable/bookmarkable position as this def. */

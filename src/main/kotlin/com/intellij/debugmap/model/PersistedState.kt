@@ -25,6 +25,10 @@ class PersistedBreakpoint {
 
   /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
   var id: String = ""
+  var anchorStructuralPath: String? = null
+  var anchorContent: String? = null
+  /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
+  var status: String = "NORMAL"
 }
 
 /** XML-serializable bookmark bean. */
@@ -36,6 +40,10 @@ class PersistedBookmark {
 
   /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
   var id: String = ""
+  var anchorStructuralPath: String? = null
+  var anchorContent: String? = null
+  /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
+  var status: String = "NORMAL"
 }
 
 /** XML-serializable topic bean (includes its breakpoints and bookmarks). */

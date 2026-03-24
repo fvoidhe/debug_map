@@ -1,5 +1,6 @@
 package com.intellij.debugmap.model
 
+import com.intellij.debugmap.generateNanoId
 import com.intellij.ide.bookmark.BookmarkType
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,7 +15,10 @@ data class BookmarkDef(
   override val line: Int,
   override val name: String? = null,
   val type: BookmarkType = BookmarkType.DEFAULT,
-  override val id: String = java.util.UUID.randomUUID().toString(),
+  override val id: String = generateNanoId(),
+  override val structuralPath: String? = null,
+  override val content: String? = null,
+  override val status: LocationStatus = LocationStatus.NORMAL,
 ) : LocationDef(topicId, fileUrl, line, name, id) {
 
   fun toJson(): JsonObject = buildJsonObject {

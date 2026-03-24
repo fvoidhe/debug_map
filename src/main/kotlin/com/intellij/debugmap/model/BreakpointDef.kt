@@ -1,5 +1,6 @@
 package com.intellij.debugmap.model
 
+import com.intellij.debugmap.generateNanoId
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -30,7 +31,10 @@ data class BreakpointDef(
   val masterBreakpointId: String? = null,
   /** If true, this breakpoint stays enabled after the master fires; if false, fires once then disables. */
   val masterLeaveEnabled: Boolean? = null,
-  override val id: String = java.util.UUID.randomUUID().toString(),
+  override val id: String = generateNanoId(),
+  override val structuralPath: String? = null,
+  override val content: String? = null,
+  override val status: LocationStatus = LocationStatus.NORMAL,
 ) : LocationDef(topicId, fileUrl, line, name, id) {
 
   override fun sameLocation(other: LocationDef): Boolean =

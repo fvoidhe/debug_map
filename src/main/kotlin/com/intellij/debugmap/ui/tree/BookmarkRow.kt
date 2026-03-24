@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.intellij.debugmap.model.LocationStatus
 import com.intellij.debugmap.ui.DebugMapNode
 import org.jetbrains.jewel.ui.component.Icon
 import org.jetbrains.jewel.ui.component.Text
@@ -28,8 +30,10 @@ internal fun BookmarkRow(node: DebugMapNode.BookmarkItem, isSelected: Boolean = 
   val fileName = def.fileUrl.substringAfterLast('/')
   val lineNumber = def.line + 1
   val hasName = !def.name.isNullOrBlank()
+  val isStale = def.status == LocationStatus.STALE
   Row(
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp),
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
+      .then(if (isStale) Modifier.alpha(0.45f) else Modifier),
     verticalAlignment = if (isSelected && hasName) Alignment.Top else Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(4.dp),
   ) {

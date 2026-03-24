@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.intellij.debugmap.DebugMapBundle
 import com.intellij.debugmap.DebugMapService
+import com.intellij.debugmap.model.LocationStatus
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.ui.tree.BookmarkContextMenu
 import com.intellij.debugmap.ui.tree.BookmarkRow
@@ -128,25 +129,25 @@ internal fun DebugMapToolWindow(project: Project) {
           breakpointCount = topic.breakpoints.size,
         )
         val topicMatches = matchesSearch(searchText, topic.name)
-        val filteredBookmarks = when {
+        val filteredBookmarks = (when {
           searchText.isBlank() || topicMatches -> topic.bookmarks
           else -> topic.bookmarks.filter { bm ->
             matchesSearch(searchText, bm.name, bm.fileUrl.substringAfterLast('/'))
           }
-        }
-        val filteredBreakpoints = when {
+        }).sortedBy { if (it.status == LocationStatus.STALE) 1 else 0 }
+        val filteredBreakpoints = (when {
           searchText.isBlank() || topicMatches -> topic.breakpoints
           else -> topic.breakpoints.filter { bp ->
             matchesSearch(searchText, bp.name, bp.fileUrl.substringAfterLast('/'), bp.condition, bp.logExpression)
           }
-        }
+        }).sortedBy { if (it.status == LocationStatus.STALE) 1 else 0 }
         if (searchText.isBlank() || topicMatches || filteredBookmarks.isNotEmpty() || filteredBreakpoints.isNotEmpty()) {
           addNode(data = topicNode, id = "topic-${topic.id}") {
             for (bm in filteredBookmarks) {
               val bmIndex = recentBookmarks.indexOfFirst { it.topicId == bm.topicId && it.fileUrl == bm.fileUrl && it.line == bm.line }
               addLeaf(
                 data = DebugMapNode.BookmarkItem(bm, if (bmIndex != -1) bmIndex else null),
-                id = "bm-${topic.id}-${bm.fileUrl}-${bm.line}",
+                id = "bm-${bm.id}",
               )
             }
             for (bp in filteredBreakpoints) {
@@ -155,7 +156,7 @@ internal fun DebugMapToolWindow(project: Project) {
               val recentIndex = if (index != -1) index else null
               addLeaf(
                 data = DebugMapNode.BreakpointItem(bp, recentIndex, topic.id == activeTopicId),
-                id = "bp-${topic.id}-${bp.fileUrl}-${bp.line}-${bp.column}",
+                id = "bp-${bp.id}",
               )
             }
           }

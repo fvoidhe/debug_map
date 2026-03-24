@@ -250,6 +250,7 @@ class DebugToolset : McpToolset {
           content = vf?.let { lineContent(it, def.line) },
           dependsOnId = def.masterBreakpointId,
           dependencyLeaveEnabled = def.masterLeaveEnabled,
+          status = def.status.name,
         ))
       }
     }
@@ -323,6 +324,8 @@ class DebugToolset : McpToolset {
     val content: String? = null,
     val dependsOnId: String? = null,
     val dependencyLeaveEnabled: Boolean? = null,
+    /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
+    val status: String = "NORMAL",
   )
 
   @Serializable
