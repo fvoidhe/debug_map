@@ -33,7 +33,7 @@ data class TopicData(
       val name = obj["name"]?.jsonPrimitive?.contentOrNull
       require(!name.isNullOrBlank()) { "missing or blank name" }
       val status = runCatching {
-        TopicStatus.valueOf(obj["status"]?.jsonPrimitive?.content ?: "OPEN")
+        TopicStatus.valueOf(obj["status"]?.jsonPrimitive?.contentOrNull ?: "OPEN")
       }.getOrDefault(TopicStatus.OPEN)
       val breakpoints = mutableListOf<BreakpointDef>()
       obj["breakpoints"]?.jsonArray?.forEachIndexed { i, el ->

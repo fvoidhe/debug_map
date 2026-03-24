@@ -38,7 +38,7 @@ private fun computeAnchor(project: Project, fileUrl: String, line: Int): Pair<St
   }
 
   return Pair(
-    structuralPath?.joinToString(":") { it -> it.name?.takeIf { it.isNotBlank() } ?: "" },
+    structuralPath?.takeIf { it.isNotEmpty() }?.joinToString(":") { it.name!! },
     content,
   )
 }
@@ -50,7 +50,7 @@ private fun buildStructuralPath(psiFile: PsiFile, startOffset: Int): List<PsiNam
 
   val psiElements: MutableList<PsiNameIdentifierOwner> = mutableListOf()
   while (current != null && current !is PsiFile) {
-    if (current is PsiNameIdentifierOwner) {
+    if (current is PsiNameIdentifierOwner && !current.name.isNullOrBlank()) {
       psiElements.add(current)
     }
     current = current.parent

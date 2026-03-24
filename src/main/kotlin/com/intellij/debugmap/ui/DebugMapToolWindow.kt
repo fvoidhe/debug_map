@@ -31,7 +31,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.intellij.debugmap.DebugMapBundle
 import com.intellij.debugmap.DebugMapService
-import com.intellij.debugmap.model.LocationStatus
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.ui.tree.BookmarkContextMenu
 import com.intellij.debugmap.ui.tree.BookmarkRow
@@ -134,13 +133,13 @@ internal fun DebugMapToolWindow(project: Project) {
           else -> topic.bookmarks.filter { bm ->
             matchesSearch(searchText, bm.name, bm.fileUrl.substringAfterLast('/'))
           }
-        }).sortedBy { if (it.status == LocationStatus.STALE) 1 else 0 }
+        }).sortedBy { if (it.isStale) 1 else 0 }
         val filteredBreakpoints = (when {
           searchText.isBlank() || topicMatches -> topic.breakpoints
           else -> topic.breakpoints.filter { bp ->
             matchesSearch(searchText, bp.name, bp.fileUrl.substringAfterLast('/'), bp.condition, bp.logExpression)
           }
-        }).sortedBy { if (it.status == LocationStatus.STALE) 1 else 0 }
+        }).sortedBy { if (it.isStale) 1 else 0 }
         if (searchText.isBlank() || topicMatches || filteredBookmarks.isNotEmpty() || filteredBreakpoints.isNotEmpty()) {
           addNode(data = topicNode, id = "topic-${topic.id}") {
             for (bm in filteredBookmarks) {

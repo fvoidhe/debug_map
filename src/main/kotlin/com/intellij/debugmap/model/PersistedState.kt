@@ -1,8 +1,5 @@
 package com.intellij.debugmap.model
 
-import com.intellij.util.xmlb.annotations.OptionTag
-import com.intellij.util.xmlb.annotations.Tag
-
 /** XML-serializable breakpoint bean. */
 class PersistedBreakpoint {
   var fileUrl: String = ""
@@ -25,8 +22,8 @@ class PersistedBreakpoint {
 
   /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
   var id: String = ""
-  var anchorStructuralPath: String? = null
-  var anchorContent: String? = null
+  var logicalLocation: String? = null
+  var content: String? = null
   /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
   var status: String = "NORMAL"
 }
@@ -40,8 +37,8 @@ class PersistedBookmark {
 
   /** Stable primary key; blank means unset (older persisted state) — a new random id is assigned on load. */
   var id: String = ""
-  var anchorStructuralPath: String? = null
-  var anchorContent: String? = null
+  var logicalLocation: String? = null
+  var content: String? = null
   /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
   var status: String = "NORMAL"
 }

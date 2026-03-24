@@ -235,23 +235,26 @@ class DebugToolset : McpToolset {
       val isActive = t.id == activeTopicId
       for (def in t.breakpoints) {
         if (path != null && !def.fileUrl.contains(path)) continue
-        val vf = VirtualFileManager.getInstance().findFileByUrl(def.fileUrl)
         items.add(BreakpointInfo(
           id = def.id,
           path = def.fileUrl,
           line = def.line + 1,
           topic = t.name,
-          active = isActive,
           enabled = def.enabled,
           description = def.name?.takeIf { it.isNotBlank() },
           condition = def.condition?.takeIf { it.isNotBlank() },
           logExpression = def.logExpression?.takeIf { it.isNotBlank() },
           logMessage = def.logMessage,
           suspendPolicy = def.suspendPolicy,
-          content = vf?.let { lineContent(it, def.line) },
+          content = def.content,
+          logicalLocation = def.logicalLocation,
           dependsOnId = def.masterBreakpointId,
           dependencyLeaveEnabled = def.masterLeaveEnabled,
-          status = def.status.name,
+          status = when {
+            def.isStale -> "STALE"
+            isActive -> "ACTIVE"
+            else -> "INACTIVE"
+          },
         ))
       }
     }
@@ -314,7 +317,6 @@ class DebugToolset : McpToolset {
     val path: String,
     val line: Int,
     val topic: String,
-    val active: Boolean,
     val enabled: Boolean? = null,
     val description: String? = null,
     val condition: String? = null,
@@ -325,8 +327,9 @@ class DebugToolset : McpToolset {
     val content: String? = null,
     val dependsOnId: String? = null,
     val dependencyLeaveEnabled: Boolean? = null,
-    /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
+    /** Read-only. "ACTIVE" | "INACTIVE" | "STALE". STALE (unreliable line number) takes priority over active state. */
     val status: String,
+    val logicalLocation: String?,
   )
 
   @Serializable

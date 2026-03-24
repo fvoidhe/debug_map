@@ -16,9 +16,9 @@ data class BookmarkDef(
   override val name: String? = null,
   val type: BookmarkType = BookmarkType.DEFAULT,
   override val id: String = generateNanoId(),
-  override val structuralPath: String? = null,
+  override val logicalLocation: String? = null,
   override val content: String? = null,
-  override val status: LocationStatus = LocationStatus.NORMAL,
+  override val isStale: Boolean = false,
 ) : LocationDef(topicId, fileUrl, line, name, id) {
 
   fun toJson(): JsonObject = buildJsonObject {

@@ -4,7 +4,6 @@ import com.intellij.debugmap.manager.BreakpointManager
 import com.intellij.debugmap.manager.ParsedImport
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
-import com.intellij.debugmap.model.LocationStatus
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.model.TopicStatus
 import com.intellij.debugmap.model.RecentLocationTracker
@@ -124,7 +123,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   internal fun setActiveTopicId(topicId: Int?) {
     breakpointManager.activeTopicId = topicId
     val topicName = topicId?.let { breakpointManager.getTopic(it)?.name }
-    cs.launch { ideManager.setDefaultGroup(topicName) }
+    ideManager.setDefaultGroup(topicName)
   }
 
   override fun getState(): PersistedState = PersistedState().also { state ->
@@ -151,9 +150,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             pb.masterBreakpointId = def.masterBreakpointId
             pb.masterLeaveEnabled = def.masterLeaveEnabled
             pb.id = def.id
-            pb.anchorStructuralPath = def.structuralPath
-            pb.anchorContent = def.content
-            pb.status = def.status.name
+            pb.logicalLocation = def.logicalLocation
+            pb.content = def.content
+            pb.status = if (def.isStale) "STALE" else "NORMAL"
           }
         }.toMutableList()
         pg.bookmarks = topic.bookmarks.map { def ->
@@ -163,9 +162,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             pb.name = def.name?.ifEmpty { null }
             pb.bookmarkType = def.type.name
             pb.id = def.id
-            pb.anchorStructuralPath = def.structuralPath
-            pb.anchorContent = def.content
-            pb.status = def.status.name
+            pb.logicalLocation = def.logicalLocation
+            pb.content = def.content
+            pb.status = if (def.isStale) "STALE" else "NORMAL"
           }
         }.toMutableList()
       }
@@ -200,9 +199,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             masterBreakpointId = pb.masterBreakpointId,
             masterLeaveEnabled = pb.masterLeaveEnabled,
             id = pb.id.ifEmpty { generateNanoId() },
-            structuralPath = pb.anchorStructuralPath,
-            content = pb.anchorContent,
-            status = runCatching { LocationStatus.valueOf(pb.status) }.getOrDefault(LocationStatus.NORMAL),
+            logicalLocation = pb.logicalLocation,
+            content = pb.content,
+            isStale = pb.status == "STALE",
           )
         },
         bookmarks = pg.bookmarks.map { pb ->
@@ -213,9 +212,9 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             name = pb.name,
             type = runCatching { BookmarkType.valueOf(pb.bookmarkType) }.getOrDefault(BookmarkType.DEFAULT),
             id = pb.id.ifEmpty { generateNanoId() },
-            structuralPath = pb.anchorStructuralPath,
-            content = pb.anchorContent,
-            status = runCatching { LocationStatus.valueOf(pb.status) }.getOrDefault(LocationStatus.NORMAL),
+            logicalLocation = pb.logicalLocation,
+            content = pb.content,
+            isStale = pb.status == "STALE",
           )
         },
       )
@@ -237,7 +236,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     val oldName = breakpointManager.getTopic(topicId)?.name
     breakpointManager.renameTopic(topicId, name)
     if (topicId == breakpointManager.activeTopicId && oldName != null) {
-      cs.launch { ideManager.renameGroup(oldName, name) }
+      ideManager.renameGroup(oldName, name)
     }
     syncState()
   }
@@ -302,7 +301,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
       val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(structuralPath = path, content = content))
+      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }
@@ -317,7 +316,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   fun removeBreakpointByToolWindow(topicId: Int, fileUrl: String, line: Int, column: Int = 0) {
     breakpointManager.removeBreakpointFromTopic(topicId, fileUrl, line, column)
     if (topicId == breakpointManager.activeTopicId) {
-      cs.launch { ideManager.findLineBreakpoint(fileUrl, line, column)?.let { ideManager.removeBreakpoint(it) } }
+      ideManager.findLineBreakpoint(fileUrl, line, column)?.let { ideManager.removeBreakpoint(it) }
     }
     syncState()
   }
@@ -328,7 +327,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, newLine) ?: return@launch
       val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.replaceBreakpointDef(current.copy(structuralPath = path, content = content))
+      breakpointManager.replaceBreakpointDef(current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }
@@ -346,7 +345,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
       val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(structuralPath = path, content = content))
+      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }
@@ -365,17 +364,15 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
       if (existingDef != null && existingDef.line != updatedDef.line) {
         // Line changed: the IDE breakpoint is still at the old line, so applyBreakpointProperties
         // (which looks up by new line) would miss it. Remove the old one and add the new one instead.
-        cs.launch {
-          ideManager.findLineBreakpoint(existingDef.fileUrl, existingDef.line, existingDef.column)
-            ?.let { ideManager.removeBreakpoint(it) }
-          ideManager.addBreakpointDefs(listOf(updatedDef))
-          val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
-          ideManager.applyBreakpointProperties(updatedDef, masterDef)
-        }
+        ideManager.findLineBreakpoint(existingDef.fileUrl, existingDef.line, existingDef.column)
+          ?.let { ideManager.removeBreakpoint(it) }
+        ideManager.addBreakpointDefs(listOf(updatedDef))
+        val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
+        ideManager.applyBreakpointProperties(updatedDef, masterDef)
       }
       else {
         val masterDef = updatedDef.masterBreakpointId?.let { breakpointManager.findBreakpointById(it) }
-        cs.launch { ideManager.applyBreakpointProperties(updatedDef, masterDef) }
+        ideManager.applyBreakpointProperties(updatedDef, masterDef)
       }
     }
     syncState()
@@ -391,7 +388,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
       val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(structuralPath = path, content = content))
+      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }
@@ -426,7 +423,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
       val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(structuralPath = path, content = content))
+      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }
@@ -440,17 +437,17 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     syncState()
   }
 
-  /** Marks the breakpoint with the given id as [LocationStatus.STALE]. Only program logic should call this. */
+  /** Marks the breakpoint with the given id as stale. Only program logic should call this. */
   fun markBreakpointStale(id: String) {
     val def = breakpointManager.findBreakpointById(id) ?: return
-    breakpointManager.replaceBreakpointDef(def.copy(status = LocationStatus.STALE))
+    breakpointManager.replaceBreakpointDef(def.copy(isStale = true))
     syncState()
   }
 
-  /** Marks the bookmark with the given id as [LocationStatus.STALE]. Only program logic should call this. */
+  /** Marks the bookmark with the given id as stale. Only program logic should call this. */
   fun markBookmarkStale(id: String) {
     val def = breakpointManager.findBookmarkById(id) ?: return
-    breakpointManager.replaceBookmarkDef(def.copy(status = LocationStatus.STALE))
+    breakpointManager.replaceBookmarkDef(def.copy(isStale = true))
     syncState()
   }
 
@@ -460,7 +457,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
     cs.launch {
       val (path, content) = buildSemanticAnchor(project, def.fileUrl, newLine) ?: return@launch
       val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.replaceBookmarkDef(current.copy(structuralPath = path, content = content))
+      breakpointManager.replaceBookmarkDef(current.copy(logicalLocation = path, content = content))
       syncState()
     }
   }

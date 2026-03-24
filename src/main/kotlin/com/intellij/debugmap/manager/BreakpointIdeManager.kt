@@ -46,8 +46,8 @@ class BreakpointIdeManager(private val project: Project) {
     val relativePath = if (vFile != null) {
       val index = ProjectRootManager.getInstance(project).fileIndex
       val root = index.getContentRootForFile(vFile)
-                 ?: index.getSourceRootForFile(vFile)
-                 ?: BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(vFile)
+          ?: index.getSourceRootForFile(vFile)
+          ?: BaseProjectDirectories.getInstance(project).getBaseDirectoryFor(vFile)
       if (root != null) VfsUtil.getRelativePath(vFile, root) else null
     } else null
     "${relativePath ?: vFile?.name ?: fileUrl}:${line + 1}"
@@ -60,17 +60,16 @@ class BreakpointIdeManager(private val project: Project) {
     }
   }
 
-  fun allLineBreakpoints(): List<XLineBreakpoint<*>> = ReadAction.nonBlocking<List<XLineBreakpoint<*>>> {
-    bpManager.allBreakpoints.filterIsInstance<XLineBreakpoint<*>>()
-  }.executeSynchronously()
+  fun allLineBreakpoints(): List<XLineBreakpoint<*>> =
+      bpManager.allBreakpoints.filterIsInstance<XLineBreakpoint<*>>()
 
   fun findLineBreakpoint(fileUrl: String, lineZeroBased: Int, column: Int = 0): XLineBreakpoint<*>? {
     return allLineBreakpoints().firstOrNull { it.fileUrl == fileUrl && it.line == lineZeroBased && it.column(this) == column }
   }
 
-  fun canPutAt(file: VirtualFile, lineZeroBased: Int): Boolean = ReadAction.nonBlocking<Boolean> {
+  fun canPutAt(file: VirtualFile, lineZeroBased: Int): Boolean = ReadAction.compute<Boolean, Exception> {
     XDebuggerUtil.getInstance().getLineBreakpointTypes().any { it.canPutAt(file, lineZeroBased, project) }
-  }.executeSynchronously()
+  }
 
   // ── Write operations ───────────────────────────────────────────────────────
 
@@ -80,37 +79,39 @@ class BreakpointIdeManager(private val project: Project) {
    * falls back to whole-line if no variant matches the stored column.
    * Returns the created breakpoint, or null if no suitable type exists for this location.
    */
-  fun addLineBreakpoint(file: VirtualFile, lineZeroBased: Int, def: BreakpointDef? = null): XLineBreakpoint<*>? =
-    ReadAction.nonBlocking<XLineBreakpoint<*>?> {
+  fun addLineBreakpoint(file: VirtualFile, lineZeroBased: Int, def: BreakpointDef? = null): XLineBreakpoint<*>? {
+    val (type, properties) = ReadAction.compute<Pair<XLineBreakpointType<XBreakpointProperties<*>>, XBreakpointProperties<*>>?, Exception> {
       @Suppress("UNCHECKED_CAST")
       val type = XDebuggerUtil.getInstance().getLineBreakpointTypes()
-                   .filter { it.canPutAt(file, lineZeroBased, project) }
-                   .maxByOrNull { it.priority }
-                   as? XLineBreakpointType<XBreakpointProperties<*>>
-                 ?: return@nonBlocking null
+          .filter { it.canPutAt(file, lineZeroBased, project) }
+          .maxByOrNull { it.priority }
+          as? XLineBreakpointType<XBreakpointProperties<*>>
+          ?: return@compute null
 
       val properties = if (def != null && def.column > 0) {
         val position = XDebuggerUtil.getInstance().createPosition(file, lineZeroBased)
         val document = FileDocumentManager.getInstance().getDocument(file)
         val lineStart = if (document != null && position != null) document.getLineStartOffset(lineZeroBased) else -1
         type.computeVariants(project, position ?: XDebuggerUtil.getInstance().createPosition(file, lineZeroBased)!!)
-          .filterNot { it.isMultiVariant }
-          .firstOrNull { v -> v.highlightRange?.let { it.startOffset - lineStart == def.column } == true }
-          ?.createProperties()
-        ?: type.createBreakpointProperties(file, lineZeroBased)
-      }
-      else {
+            .filterNot { it.isMultiVariant }
+            .firstOrNull { v -> v.highlightRange?.let { it.startOffset - lineStart == def.column } == true }
+            ?.createProperties()
+            ?: type.createBreakpointProperties(file, lineZeroBased)
+      } else {
         type.createBreakpointProperties(file, lineZeroBased)
       }
 
-      val bp = bpManager.addLineBreakpoint(type, file.url, lineZeroBased, properties)
-      def?.condition?.let { bp.setCondition(it) }
-      def?.logExpression?.let { bp.setLogExpression(it) }
-      def?.name?.let { (bp as? XBreakpointBase<*, *, *>)?.userDescription = it }
-      bp
-    }.executeSynchronously()
+      type to properties as XBreakpointProperties<*>
+    } ?: return null
 
-  suspend fun removeBreakpoint(bp: XLineBreakpoint<*>): Unit = writeAction {
+    val bp = bpManager.addLineBreakpoint(type, file.url, lineZeroBased, properties)
+    def?.condition?.let { bp.setCondition(it) }
+    def?.logExpression?.let { bp.setLogExpression(it) }
+    def?.name?.let { (bp as? XBreakpointBase<*, *, *>)?.userDescription = it }
+    return bp
+  }
+
+  fun removeBreakpoint(bp: XLineBreakpoint<*>) {
     bpManager.removeBreakpoint(bp)
   }
 
@@ -122,7 +123,7 @@ class BreakpointIdeManager(private val project: Project) {
     group.setDescription(bookmark, name)
   }
 
-  suspend fun renameGroup(oldName: String, newName: String): Unit = writeAction {
+  fun renameGroup(oldName: String, newName: String) {
     BookmarksManager.getInstance(project)?.getGroup(oldName)?.name = newName
     (bpManager as? XBreakpointManagerImpl)?.defaultGroup = newName
   }
@@ -143,9 +144,9 @@ class BreakpointIdeManager(private val project: Project) {
     for (breakpointDef in breakpointDefs) {
       existing.firstOrNull {
         it.fileUrl == breakpointDef.fileUrl && it.line == breakpointDef.line
-        && it.column(this) == breakpointDef.column
+            && it.column(this) == breakpointDef.column
       }
-        ?.let { bpManager.removeBreakpoint(it) }
+          ?.let { bpManager.removeBreakpoint(it) }
     }
   }
 
@@ -156,14 +157,12 @@ class BreakpointIdeManager(private val project: Project) {
       val bookmark = provider.createBookmark(mapOf("url" to def.fileUrl, "line" to "${def.line}")) ?: continue
       val group = if (groupName != null) {
         manager.getGroup(groupName) ?: manager.addGroup(groupName, false)
-      }
-      else {
+      } else {
         manager.getDefaultGroup()
       }
       if (group != null) {
         group.add(bookmark, def.type, def.name?.takeIf { it.isNotBlank() })
-      }
-      else {
+      } else {
         manager.add(bookmark, def.type)
       }
     }
@@ -185,30 +184,27 @@ class BreakpointIdeManager(private val project: Project) {
    * Used by the update path to keep the IDE in sync after the manager state has already been updated.
    * No-op if the breakpoint is not currently active in the IDE.
    */
-  suspend fun applyBreakpointProperties(def: BreakpointDef, masterDef: BreakpointDef?) {
+  fun applyBreakpointProperties(def: BreakpointDef, masterDef: BreakpointDef?) {
     val bp = findLineBreakpoint(def.fileUrl, def.line, def.column) ?: return
     val masterBp = masterDef?.let { findLineBreakpoint(it.fileUrl, it.line) }
-    writeAction {
-      def.enabled?.let { bp.setEnabled(it) }
-      (bp as? XBreakpointBase<*, *, *>)?.userDescription = def.name?.ifBlank { null }
-      bp.setCondition(def.condition)
-      bp.setLogExpression(def.logExpression)
-      def.logMessage?.let { bp.setLogMessage(it) }
-      def.logStack?.let { bp.setLogStack(it) }
-      def.suspendPolicy?.let {
-        bp.setSuspendPolicy(when (it.uppercase()) {
-                              "ALL" -> SuspendPolicy.ALL
-                              "THREAD" -> SuspendPolicy.THREAD
-                              "NONE" -> SuspendPolicy.NONE
-                              else -> return@let
-                            })
-      }
-      if (def.masterBreakpointId == null) {
-        depManager?.clearMasterBreakpoint(bp)
-      }
-      else if (masterBp != null) {
-        depManager?.setMasterBreakpoint(bp, masterBp, def.masterLeaveEnabled ?: true)
-      }
+    def.enabled?.let { bp.setEnabled(it) }
+    (bp as? XBreakpointBase<*, *, *>)?.userDescription = def.name?.ifBlank { null }
+    bp.setCondition(def.condition)
+    bp.setLogExpression(def.logExpression)
+    def.logMessage?.let { bp.setLogMessage(it) }
+    def.logStack?.let { bp.setLogStack(it) }
+    def.suspendPolicy?.let {
+      bp.setSuspendPolicy(when (it.uppercase()) {
+        "ALL" -> SuspendPolicy.ALL
+        "THREAD" -> SuspendPolicy.THREAD
+        "NONE" -> SuspendPolicy.NONE
+        else -> return@let
+      })
+    }
+    if (def.masterBreakpointId == null) {
+      depManager?.clearMasterBreakpoint(bp)
+    } else if (masterBp != null) {
+      depManager?.setMasterBreakpoint(bp, masterBp, def.masterLeaveEnabled ?: true)
     }
   }
 
@@ -221,22 +217,14 @@ class BreakpointIdeManager(private val project: Project) {
   }
 
 
-  suspend fun setMasterBreakpoint(slave: XLineBreakpoint<*>, master: XLineBreakpoint<*>, leaveEnabled: Boolean): Unit? = writeAction {
-    depManager?.setMasterBreakpoint(slave, master, leaveEnabled)
-  }
-
-  suspend fun clearMasterBreakpoint(bp: XLineBreakpoint<*>): Unit? = writeAction {
-    depManager?.clearMasterBreakpoint(bp)
-  }
-
-  suspend fun setDefaultGroup(groupName: String?): Unit = writeAction {
+  fun setDefaultGroup(groupName: String?) {
     (bpManager as? XBreakpointManagerImpl)?.defaultGroup = groupName
-    val bmManager = BookmarksManager.getInstance(project) ?: return@writeAction
+    val bmManager = BookmarksManager.getInstance(project) ?: return
     if (groupName == null) {
       bmManager.getDefaultGroup()?.isDefault = false
-      return@writeAction
+      return
     }
-    val group = bmManager.getGroup(groupName) ?: bmManager.addGroup(groupName, false) ?: return@writeAction
+    val group = bmManager.getGroup(groupName) ?: bmManager.addGroup(groupName, false) ?: return
     group.isDefault = true
   }
 
@@ -244,15 +232,19 @@ class BreakpointIdeManager(private val project: Project) {
 
 
 internal fun XLineBreakpoint<*>.column(breakpointIdeaManager: BreakpointIdeManager): Int {
-  return ReadAction.nonBlocking<Int> {
-    val position = sourcePosition ?: return@nonBlocking 0
-    highlightRange ?: return@nonBlocking 0
+  // allLineBreakpoints() is protected by XBreakpointManagerImpl's own ReentrantLock,
+  // no IDE read action needed here.
+  val sameLineBreakpoints = breakpointIdeaManager.allLineBreakpoints()
+      .filter { it.fileUrl == fileUrl && it.line == line }
+
+  return ReadAction.compute<Int, Exception> {
+    val position = sourcePosition ?: return@compute 0
+    highlightRange ?: return@compute 0
 
     val firstBreakpointOffset =
-      breakpointIdeaManager.allLineBreakpoints().filter { it.fileUrl == position.file.url && it.line == position.line }.minByOrNull {
-        it.sourcePosition?.offset ?: Int.MAX_VALUE
-      }?.sourcePosition?.offset ?: return@nonBlocking 0
+        sameLineBreakpoints.minByOrNull { it.sourcePosition?.offset ?: Int.MAX_VALUE }
+            ?.sourcePosition?.offset ?: return@compute 0
 
     position.offset - firstBreakpointOffset + 1
-  }.executeSynchronously()
+  }
 }

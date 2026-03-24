@@ -2,7 +2,7 @@ package com.intellij.debugmap
 
 import java.security.SecureRandom
 
-private val NANO_ID_ALPHABET = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict".toCharArray()
+private val NANO_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".toCharArray()
 private val RANDOM = SecureRandom()
 
 /** Generates a NanoID-compatible random string (URL-safe alphabet, default 8 characters). */

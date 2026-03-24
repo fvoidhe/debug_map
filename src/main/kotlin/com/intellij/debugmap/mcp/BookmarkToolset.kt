@@ -43,17 +43,20 @@ class BookmarkToolset : McpToolset {
       val isActive = t.id == activeTopicId
       for (bookmark in t.bookmarks) {
         if (path != null && !bookmark.fileUrl.contains(path)) continue
-        val file = VirtualFileManager.getInstance().refreshAndFindFileByUrl(bookmark.fileUrl)
         items.add(BookmarkInfo(
           id = bookmark.id,
           path = bookmark.fileUrl,
           line = bookmark.line + 1,
           topic = t.name,
-          active = isActive,
           name = bookmark.name,
           mnemonic = bookmark.type.takeIf { it != BookmarkType.DEFAULT }?.mnemonic?.toString(),
-          content = file?.let { lineContent(it, bookmark.line) },
-          status = bookmark.status.name,
+          content = bookmark.content,
+          structuralPath = bookmark.logicalLocation,
+          status = when {
+            bookmark.isStale -> "STALE"
+            isActive -> "ACTIVE"
+            else -> "INACTIVE"
+          },
         ))
       }
     }
@@ -234,11 +237,11 @@ class BookmarkToolset : McpToolset {
     val path: String,
     val line: Int?,
     val topic: String,
-    val active: Boolean,
     val name: String? = null,
     val mnemonic: String? = null,
     val content: String? = null,
-    /** Read-only. "NORMAL" | "STALE". STALE means the stored line number is unreliable. */
+    val structuralPath: String? = null,
+    /** Read-only. "ACTIVE" | "INACTIVE" | "STALE". STALE (unreliable line number) takes priority over active state. */
     val status: String,
   )
 

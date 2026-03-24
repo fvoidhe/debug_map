@@ -20,7 +20,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import com.intellij.debugmap.model.LocationStatus
 import com.intellij.debugmap.ui.DebugMapNode
 import org.jetbrains.jewel.ui.component.Icon
 import org.jetbrains.jewel.ui.component.Text
@@ -33,7 +32,7 @@ internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolea
   val fileName = def.fileUrl.substringAfterLast('/')
   val position = if (def.column > 0) "${def.line + 1}:${def.column}" else "${def.line + 1}"
   val hasName = !def.name.isNullOrBlank()
-  val isStale = def.status == LocationStatus.STALE
+  val isStale = def.isStale
   Row(
     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 1.dp)
       .then(if (isStale) Modifier.alpha(0.45f) else Modifier),
