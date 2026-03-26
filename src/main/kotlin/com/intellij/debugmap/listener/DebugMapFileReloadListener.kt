@@ -300,7 +300,7 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
 
   companion object {
     /** Minimum LCS/target-length ratio required to accept a line match. */
-    private const val MATCH_CONFIDENCE = 0.6
+    private const val MATCH_CONFIDENCE = 0.5
 
     /** Bonus added to the ranking score when the candidate is in the same structural scope. */
     private const val PATH_BONUS = 2

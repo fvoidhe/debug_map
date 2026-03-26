@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.intellij.debugmap.ui.DebugMapNode
+import com.intellij.util.PathUtil
 import org.jetbrains.jewel.ui.component.Icon
 import org.jetbrains.jewel.ui.component.Text
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
@@ -29,7 +30,7 @@ import org.jetbrains.jewel.ui.icons.AllIconsKeys
 internal fun BreakpointRow(node: DebugMapNode.BreakpointItem, isSelected: Boolean = false, searchText: String = "") {
   val def = node.def
   val resolved = resolveBreakpointIcon(def, node.isInActiveTopic)
-  val fileName = def.fileUrl.substringAfterLast('/')
+  val fileName = PathUtil.getFileName(def.fileUrl)
   val position = if (def.column > 0) "${def.line + 1}:${def.column}" else "${def.line + 1}"
   val hasName = !def.name.isNullOrBlank()
   val isStale = def.isStale
