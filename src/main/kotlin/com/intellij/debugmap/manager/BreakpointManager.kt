@@ -183,7 +183,7 @@ class BreakpointManager {
     require(def.fileUrl == existing.fileUrl) { "fileUrl must not change: ${existing.fileUrl} → ${def.fileUrl}" }
     val topic = topicMap[existing.topicId] ?: return@withLock
     val list = topic.breakpoints.toMutableList()
-    val idx = list.indexOfFirst { it is BreakpointDef && (it as BreakpointDef).id == def.id }
+    val idx = list.indexOfFirst { it.id == def.id }
     if (idx < 0) return@withLock
     list[idx] = def
     topicMap[existing.topicId] = topic.copy(breakpoints = list)
@@ -268,21 +268,6 @@ class BreakpointManager {
 
   fun getBookmarkTopicId(fileUrl: String, line: Int): Int? = lock.withLock {
     fileMap[fileUrl]?.firstOrNull { it is BookmarkDef && it.line == line }?.topicId
-  }
-
-  fun moveBookmarkLine(def: BookmarkDef, newLine: Int): Unit = lock.withLock {
-    val topic = topicMap[def.topicId] ?: return@withLock
-    val list = topic.bookmarks.toMutableList()
-    val idx = list.indexOfFirst { def.sameLocation(it) }
-    if (idx < 0) return@withLock
-    val movedDef = def.copy(line = newLine)
-    list[idx] = movedDef
-    topicMap[def.topicId] = topic.copy(bookmarks = list)
-    fileMap[def.fileUrl]?.apply {
-      val fIdx = indexOfFirst { it.topicId == def.topicId && def.sameLocation(it) && it is BookmarkDef }
-      if (fIdx >= 0) set(fIdx, movedDef)
-    }
-    bookmarkIdMap[def.id] = movedDef
   }
 
   /** Moves the topic by [delta] positions within its own status section. */

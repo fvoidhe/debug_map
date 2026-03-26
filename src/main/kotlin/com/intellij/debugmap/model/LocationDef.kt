@@ -17,6 +17,8 @@ abstract class LocationDef(
   open val logicalLocation: String? = null,
   /** Trimmed source text of the anchor line, null if unavailable. */
   open val content: String? = null,
+  /** PSI token texts on the anchor line (internal use only; not persisted or exposed via MCP). */
+  open val linePsiStrings: List<String> = emptyList(),
   open val isStale: Boolean = false,
 ) : Comparable<LocationDef> {
 

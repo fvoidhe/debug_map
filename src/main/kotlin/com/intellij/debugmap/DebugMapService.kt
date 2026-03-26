@@ -25,15 +25,13 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 @Service(Service.Level.PROJECT)
 @State(name = "DebugMap", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
-class DebugMapService(val project: Project, private val cs: CoroutineScope) : PersistentStateComponent<PersistedState>, Disposable {
+class DebugMapService(val project: Project) : PersistentStateComponent<PersistedState>, Disposable {
 
   private val _topics = MutableStateFlow<List<TopicData>>(emptyList())
   val topics: StateFlow<List<TopicData>> = _topics.asStateFlow()
@@ -152,6 +150,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             pb.id = def.id
             pb.logicalLocation = def.logicalLocation
             pb.content = def.content
+            pb.linePsiStrings = def.linePsiStrings.toMutableList()
             pb.status = if (def.isStale) "STALE" else "NORMAL"
           }
         }.toMutableList()
@@ -164,6 +163,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             pb.id = def.id
             pb.logicalLocation = def.logicalLocation
             pb.content = def.content
+            pb.linePsiStrings = def.linePsiStrings.toMutableList()
             pb.status = if (def.isStale) "STALE" else "NORMAL"
           }
         }.toMutableList()
@@ -201,6 +201,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             id = pb.id.ifEmpty { generateNanoId() },
             logicalLocation = pb.logicalLocation,
             content = pb.content,
+            linePsiStrings = pb.linePsiStrings,
             isStale = pb.status == "STALE",
           )
         },
@@ -214,6 +215,7 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
             id = pb.id.ifEmpty { generateNanoId() },
             logicalLocation = pb.logicalLocation,
             content = pb.content,
+            linePsiStrings = pb.linePsiStrings,
             isStale = pb.status == "STALE",
           )
         },
@@ -296,14 +298,10 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
   fun upsertBreakpointByIde(topicId: Int, def: BreakpointDef) {
-    breakpointManager.upsertBreakpointInTopic(topicId, def)
+    val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
+    val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings) else def
+    breakpointManager.upsertBreakpointInTopic(topicId, enrichedDef)
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
-      val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
@@ -322,14 +320,13 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   }
 
   fun moveBreakpointLine(def: BreakpointDef, newLine: Int) {
-    breakpointManager.replaceBreakpointDef(def.copy(line = newLine))
+    val anchor = buildSemanticAnchor(project, def.fileUrl, newLine)
+    val updatedDef = if (anchor != null)
+      def.copy(line = newLine, logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings)
+    else
+      def.copy(line = newLine)
+    breakpointManager.replaceBreakpointDef(updatedDef)
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, newLine) ?: return@launch
-      val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.replaceBreakpointDef(current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   fun getBookmarksByFile(fileUrl: String): List<BookmarkDef> =
@@ -340,14 +337,10 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
   fun upsertBookmarkByIde(topicId: Int, def: BookmarkDef) {
-    breakpointManager.upsertBookmarkInTopic(topicId, def)
+    val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
+    val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings) else def
+    breakpointManager.upsertBookmarkInTopic(topicId, enrichedDef)
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
-      val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   /** Called from the IDE listener: updates in-memory state and notifies tool windows. Does NOT push to IDE. */
@@ -380,17 +373,13 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   /** Called from the tool window or MCP: updates in-memory state, pushes to IDE if active, and notifies tool windows. Must be called within a writeAction. */
   fun addBreakpointByToolWindow(topicId: Int, def: BreakpointDef) {
-    breakpointManager.upsertBreakpointInTopic(topicId, def)
+    val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
+    val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings) else def
+    breakpointManager.upsertBreakpointInTopic(topicId, enrichedDef)
     if (topicId == breakpointManager.activeTopicId) {
-      ideManager.addBreakpointDefs(listOf(def))
+      ideManager.addBreakpointDefs(listOf(enrichedDef))
     }
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
-      val current = breakpointManager.findBreakpointById(def.id) ?: return@launch
-      breakpointManager.upsertBreakpointInTopic(topicId, current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   /**
@@ -415,17 +404,13 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
 
   /** Called from the tool window or MCP: updates in-memory state, pushes to IDE if active, and notifies tool windows. */
   fun addBookmarkByToolWindow(topicId: Int, def: BookmarkDef) {
-    breakpointManager.upsertBookmarkInTopic(topicId, def)
+    val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
+    val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings) else def
+    breakpointManager.upsertBookmarkInTopic(topicId, enrichedDef)
     if (topicId == breakpointManager.activeTopicId) {
-      ideManager.addBookmarkDefs(listOf(def))
+      ideManager.addBookmarkDefs(listOf(enrichedDef))
     }
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, def.line) ?: return@launch
-      val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.upsertBookmarkInTopic(topicId, current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   /** Called from the tool window: updates in-memory state, pushes to IDE, and notifies tool windows. */
@@ -452,14 +437,13 @@ class DebugMapService(val project: Project, private val cs: CoroutineScope) : Pe
   }
 
   fun moveBookmarkLine(def: BookmarkDef, newLine: Int) {
-    breakpointManager.moveBookmarkLine(def, newLine)
+    val anchor = buildSemanticAnchor(project, def.fileUrl, newLine)
+    val updatedDef = if (anchor != null)
+      def.copy(line = newLine, logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings)
+    else
+      def.copy(line = newLine)
+    breakpointManager.replaceBookmarkDef(updatedDef)
     syncState()
-    cs.launch {
-      val (path, content) = buildSemanticAnchor(project, def.fileUrl, newLine) ?: return@launch
-      val current = breakpointManager.findBookmarkById(def.id) ?: return@launch
-      breakpointManager.replaceBookmarkDef(current.copy(logicalLocation = path, content = content))
-      syncState()
-    }
   }
 
   fun reorderTopic(id: Int, delta: Int) {

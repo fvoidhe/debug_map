@@ -1,6 +1,7 @@
 package com.intellij.debugmap.model
 
 import com.intellij.debugmap.generateNanoId
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -34,6 +35,7 @@ data class BreakpointDef(
   override val id: String = generateNanoId(),
   override val logicalLocation: String? = null,
   override val content: String? = null,
+  override val linePsiStrings: List<String> = emptyList(),
   override val isStale: Boolean = false,
 ) : LocationDef(topicId, fileUrl, line, name, id) {
 
@@ -54,6 +56,9 @@ data class BreakpointDef(
     suspendPolicy?.let { put("suspendPolicy", JsonPrimitive(it)) }
     masterBreakpointId?.let { put("masterBreakpointId", JsonPrimitive(it)) }
     masterLeaveEnabled?.let { put("masterLeaveEnabled", JsonPrimitive(it)) }
+    content?.let { put("content", JsonPrimitive(it)) }
+    if (linePsiStrings.isNotEmpty()) put("linePsiStrings", JsonArray(linePsiStrings.map { JsonPrimitive(it) }))
+    if (isStale) put("isStale", JsonPrimitive(true))
   }
 
   companion object {

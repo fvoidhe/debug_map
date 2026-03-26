@@ -24,6 +24,7 @@ class PersistedBreakpoint {
   var id: String = ""
   var logicalLocation: String? = null
   var content: String? = null
+  var linePsiStrings: MutableList<String> = mutableListOf()
   /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
   var status: String = "NORMAL"
 }
@@ -39,6 +40,7 @@ class PersistedBookmark {
   var id: String = ""
   var logicalLocation: String? = null
   var content: String? = null
+  var linePsiStrings: MutableList<String> = mutableListOf()
   /** "NORMAL" | "STALE". Unknown values default to NORMAL on load. */
   var status: String = "NORMAL"
 }
