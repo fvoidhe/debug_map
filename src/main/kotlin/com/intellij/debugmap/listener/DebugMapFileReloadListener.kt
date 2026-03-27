@@ -19,6 +19,7 @@ import com.intellij.psi.util.startOffset
 import com.intellij.util.diff.Diff
 import com.intellij.util.diff.Diff.Change
 import com.intellij.util.diff.FilesTooBigForDiffException
+import kotlin.math.min
 
 class DebugMapFileReloadListener(private val project: Project) : FileDocumentManagerListener {
 
@@ -90,8 +91,8 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
       val correctedActiveBreakpoints = mutableListOf<BreakpointDef>()
       val correctedActiveBookmarks = mutableListOf<BookmarkDef>()
 
-      val breakPointLineSet = mutableSetOf<Int>()
-      val bookmarkLineSet = mutableSetOf<Int>()
+      val breakPointLineSet = mutableSetOf<String>()
+      val bookmarkLineSet = mutableSetOf<String>()
 
       var lastComputedLine: Int? = null
       var lastComputedTarget: Int = -1
@@ -120,21 +121,23 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
         else {
           when (def) {
             is BreakpointDef -> {
-              if (breakPointLineSet.contains(targetLine)) {
+              val key = "${def.topicId}:$targetLine"
+              if (key in breakPointLineSet) {
                 service.markBreakpointStale(def.id)
               }
               else {
-                breakPointLineSet.add(targetLine)
+                breakPointLineSet.add(key)
                 if (targetLine != def.line) service.moveBreakpointLine(def, targetLine)
                 if (def.topicId == activeTopicId) correctedActiveBreakpoints.add(def.copy(line = targetLine))
               }
             }
             is BookmarkDef -> {
-              if (bookmarkLineSet.contains(targetLine)) {
+              val key = "${def.topicId}:$targetLine"
+              if (key in bookmarkLineSet) {
                 service.markBookmarkStale(def.id)
               }
               else {
-                bookmarkLineSet.add(targetLine)
+                bookmarkLineSet.add(key)
                 if (targetLine != def.line) service.moveBookmarkLine(def, targetLine)
                 if (def.topicId == activeTopicId) correctedActiveBookmarks.add(def.copy(line = targetLine))
               }
@@ -176,6 +179,12 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
         currentChange = currentChange.link
       }
       else {
+        if (locationDef.linePsiStrings.size < 5) {
+          val delta = min(currentChange.inserted, locationDef.line - currentChange.line0)
+          newLine = currentChange.line1 + delta
+          break
+        }
+
         // Each candidate carries its line number, token list, and the structural path of its
         // enclosing scope — the path is used as an extra confidence signal in findBestMatchLine.
         val frozenChange = currentChange

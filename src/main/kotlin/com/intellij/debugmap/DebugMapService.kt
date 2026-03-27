@@ -457,6 +457,35 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     syncState()
   }
 
+  /**
+   * Reactivates a stale breakpoint: clears [BreakpointDef.isStale] and, if the topic is active,
+   * adds it to the IDE. Must be called within a writeAction.
+   * Callers are responsible for verifying that no non-stale breakpoint already occupies the same location.
+   */
+  fun reactivateBreakpoint(def: BreakpointDef) {
+    val reactivated = def.copy(isStale = false)
+    breakpointManager.replaceBreakpointDef(reactivated)
+    if (reactivated.topicId == breakpointManager.activeTopicId) {
+      ideManager.addBreakpointDefs(listOf(reactivated))
+    }
+    syncState()
+  }
+
+  /**
+   * Reactivates a stale bookmark: clears [BookmarkDef.isStale] and, if the topic is active,
+   * adds it to the IDE. Must be called within a writeAction.
+   * Callers are responsible for verifying that no non-stale bookmark already occupies the same location.
+   */
+  fun reactivateBookmark(def: BookmarkDef) {
+    val reactivated = def.copy(isStale = false)
+    breakpointManager.replaceBookmarkDef(reactivated)
+    if (reactivated.topicId == breakpointManager.activeTopicId) {
+      val topicName = breakpointManager.getTopic(def.topicId)?.name
+      ideManager.addBookmarkDefs(listOf(reactivated), topicName)
+    }
+    syncState()
+  }
+
   fun moveBookmarkLine(def: BookmarkDef, newLine: Int) {
     val anchor = buildSemanticAnchor(project, def.fileUrl, newLine)
     val updatedDef = if (anchor != null)

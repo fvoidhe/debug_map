@@ -10,8 +10,10 @@ import com.intellij.debugmap.DebugMapService
 import com.intellij.debugmap.model.TopicData
 import com.intellij.debugmap.ui.DebugMapNode
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.vfs.VirtualFileManager
 import org.jetbrains.jewel.ui.component.separator
 import org.jetbrains.jewel.ui.component.PopupMenu
 import org.jetbrains.jewel.ui.component.Text
@@ -37,6 +39,11 @@ internal fun BreakpointContextMenu(
   val copyReferenceKeybinding = remember { shortcutHint("\$Copy") }
   val breakpoints = remember(topics, node.def.topicId) { topics.find { it.id == node.def.topicId }?.breakpoints ?: emptyList() }
   val breakpointIndex = if (isSingle) breakpoints.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column } else -1
+  val defFile = remember(node.def.fileUrl) { VirtualFileManager.getInstance().findFileByUrl(node.def.fileUrl) }
+  val defDocument = remember(defFile) { defFile?.let { FileDocumentManager.getInstance().getDocument(it) } }
+  val canReactivate = isSingle && node.def.isStale && node.def.topicId == activeTopicId &&
+    (defDocument != null && node.def.line < defDocument.lineCount) &&
+    breakpoints.none { !it.isStale && it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column }
 
   val sortTopicIds = remember(nodes) { nodes.map { it.def.topicId }.distinct() }
   val menuStyle = rememberMenuStyle()
@@ -84,6 +91,24 @@ internal fun BreakpointContextMenu(
       },
     ) { Text(DebugMapBundle.message("action.sort.by.file")) }
     separator()
+    selectableItem(
+      selected = false,
+      iconKey = AllIconsKeys.Actions.Refresh,
+      enabled = canReactivate,
+      onClick = {
+        onDismiss()
+        val file = VirtualFileManager.getInstance().findFileByUrl(node.def.fileUrl)
+        if (file == null || !service.ideManager.canPutAt(file, node.def.line)) {
+          Messages.showErrorDialog(
+            project,
+            DebugMapBundle.message("dialog.reactivate.breakpoint.failed.message"),
+            DebugMapBundle.message("dialog.reactivate.breakpoint.failed.title"),
+          )
+          return@selectableItem
+        }
+        WriteAction.run<Exception> { service.reactivateBreakpoint(node.def) }
+      },
+    ) { Text(DebugMapBundle.message("action.reactivate.breakpoint")) }
     checkoutItem(node.def.topicId, service, onDismiss, enabled = isSingle && node.def.topicId != activeTopicId)
     selectableItem(
       selected = false,
