@@ -106,7 +106,12 @@ internal fun BreakpointContextMenu(
           )
           return@selectableItem
         }
-        WriteAction.run<Exception> { service.reactivateBreakpoint(node.def) }
+        val ok = WriteAction.compute<Boolean, Exception> { service.reactivateBreakpoint(node.def) }
+        if (!ok) Messages.showErrorDialog(
+          project,
+          DebugMapBundle.message("dialog.reactivate.breakpoint.duplicate.message"),
+          DebugMapBundle.message("dialog.reactivate.breakpoint.failed.title"),
+        )
       },
     ) { Text(DebugMapBundle.message("action.reactivate.breakpoint")) }
     checkoutItem(node.def.topicId, service, onDismiss, enabled = isSingle && node.def.topicId != activeTopicId)

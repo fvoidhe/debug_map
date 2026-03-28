@@ -97,7 +97,12 @@ internal fun BookmarkContextMenu(
       enabled = canReactivate,
       onClick = {
         onDismiss()
-        WriteAction.run<Exception> { service.reactivateBookmark(node.def) }
+        val ok = WriteAction.compute<Boolean, Exception> { service.reactivateBookmark(node.def) }
+        if (!ok) Messages.showErrorDialog(
+          project,
+          DebugMapBundle.message("dialog.reactivate.bookmark.duplicate.message"),
+          DebugMapBundle.message("dialog.reactivate.bookmark.failed.title"),
+        )
       },
     ) { Text(DebugMapBundle.message("action.reactivate.bookmark")) }
     checkoutItem(node.def.topicId, service, onDismiss, enabled = isSingle && node.def.topicId != activeTopicId)

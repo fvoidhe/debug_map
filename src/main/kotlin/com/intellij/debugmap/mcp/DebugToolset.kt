@@ -49,8 +49,8 @@ class DebugToolset : McpToolset {
     }
     val topicId = service.getTopicIdByName(topic) ?: service.createTopic(topic)
 
-    val existing = service.getTopicBreakpoints(topicId).firstOrNull { it.fileUrl == file.url && it.line == lineZeroBased }
-    if (existing != null) mcpFail("A breakpoint already exists at $path:$line. Use debug_update_breakpoint to modify it.")
+    val existing = service.findBreakpointByLocation(file.url, lineZeroBased, 0, topicId)
+    if (existing != null) mcpFail("A breakpoint already exists at $path:$line (id=${existing.id}). Use debug_update_breakpoint with id=${existing.id} to modify it.")
 
     if (!service.ideManager.canPutAt(file, lineZeroBased)) {
       mcpFail("Cannot set breakpoint at $path:$line — not a valid breakpoint location (no executable code on this line)")
@@ -62,10 +62,11 @@ class DebugToolset : McpToolset {
       line = lineZeroBased,
       name = description.takeIf { it.isNotBlank() },
     )
-    service.addBreakpointByToolWindow(topicId, def)
+    val storedDef = service.addBreakpointByToolWindow(topicId, def)
+                    ?: mcpFail("Breakpoint could not be added (duplicate non-stale entry at $path:$line)")
     service.promoteTopicToTop(topicId)
 
-    return BreakpointResult(path = path, line = line, status = "created", id = def.id)
+    return BreakpointResult(path = path, line = line, status = "created", id = storedDef.id)
   }
 
   @McpTool(name = "debug_update_breakpoint")
@@ -163,9 +164,13 @@ class DebugToolset : McpToolset {
       else def.suspendPolicy,
       masterBreakpointId = newMasterBreakpointId,
       masterLeaveEnabled = newMasterLeaveEnabled,
+      isStale = false,
     )
 
-    service.updateBreakpointByToolWindow(updatedDef)
+    if (!service.updateBreakpointByToolWindow(updatedDef)) {
+      val conflict = service.findBreakpointByLocation(def.fileUrl, newLineZeroBased, def.column ?: 0, def.topicId)
+      mcpFail("A breakpoint already exists at line ${newLineZeroBased + 1}${conflict?.let { " (conflict breakpoint id=${it.id})" } ?: ""}.")
+    }
 
     return BreakpointResult(path = def.fileUrl, line = newLineZeroBased + 1, status = "updated", id = id)
   }

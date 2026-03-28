@@ -25,7 +25,9 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
   override fun breakpointAdded(breakpoint: XBreakpoint<*>) {
     if (breakpoint !is XLineBreakpoint<*>) return
     val activeTopicId = service.getActiveTopicId() ?: return
-    service.upsertBreakpointByIde(activeTopicId, breakpoint.toDef(activeTopicId))
+    val column = breakpoint.column(service.ideManager)
+    if (service.findBreakpointByLocation(breakpoint.fileUrl, breakpoint.line, column, activeTopicId) != null) return
+    service.addBreakpointByIde(activeTopicId, breakpoint.toDef(activeTopicId))
   }
 
   override fun breakpointRemoved(breakpoint: XBreakpoint<*>) {
@@ -40,24 +42,33 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
     if (breakpoint !is XLineBreakpoint<*>) return
     val activeTopicId = service.getActiveTopicId() ?: return
 
+    val column = breakpoint.column(service.ideManager)
+    val existing = service.findBreakpointByLocation(breakpoint.fileUrl, breakpoint.line, column, activeTopicId)
+
     // Fast path: position unchanged, only properties (condition, log, etc.) changed.
-    if (service.breakpointExists(breakpoint.fileUrl, breakpoint.line, breakpoint.column(service.ideManager))) {
-      service.upsertBreakpointByIde(activeTopicId, breakpoint.toDef(activeTopicId))
+    if (existing != null) {
+      val rawDef = breakpoint.toDef(activeTopicId)
+      val def = rawDef.copy(id = existing.id, name = rawDef.name ?: existing.name)
+      service.updateBreakpointByIde(def)
       return
     }
 
-    // Line changed (code inserted/deleted): the stored def still has the old line.
-    // Find it by checking which stored (line, column) in this file is no longer in the IDE.
+    // Line changed: the IDE snapped the breakpoint to a different line (e.g. moved to nearest executable line).
+    // Find the stored non-stale def in this file whose position is no longer present in the IDE,
+    // then move it to the new line — preserving id, name, and all other properties.
+    // If the target line already has a non-stale def in this topic, moving would create a duplicate;
+    // mark the orphaned def as stale instead.
     val idePositionsInFile = XDebuggerManager.getInstance(project).breakpointManager
       .allBreakpoints
       .filterIsInstance<XLineBreakpoint<*>>()
       .filter { it.fileUrl == breakpoint.fileUrl }
       .mapTo(HashSet()) { it.line to it.column(service.ideManager) }
-    val staleDef = service.getTopicBreakpoints(activeTopicId)
-                     .firstOrNull { it.fileUrl == breakpoint.fileUrl && (it.line to it.column) !in idePositionsInFile }
+    val movedDef = service.getTopicBreakpoints(activeTopicId)
+                     .firstOrNull { it.fileUrl == breakpoint.fileUrl && !it.isStale && (it.line to it.column) !in idePositionsInFile }
                    ?: return
-    service.removeBreakpointByIde(activeTopicId, staleDef.fileUrl, staleDef.line, staleDef.column)
-    service.upsertBreakpointByIde(activeTopicId, breakpoint.toDef(activeTopicId))
+    if (service.moveBreakpointLine(movedDef, breakpoint.line) == null) {
+      service.markBreakpointStale(movedDef.id)
+    }
   }
 
 
@@ -90,10 +101,10 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
   override fun bookmarkAdded(group: BookmarkGroup, bookmark: Bookmark) {
     if (bookmark !is LineBookmark) return
     service.getActiveTopicId() ?: return
-
     val topicId = service.getTopicIdByName(group.name) ?: service.createTopic(group.name)
+    if (service.findBookmarkByLocation(bookmark.file.url, bookmark.line, topicId) != null) return
     val def = bookmark.toDef(topicId, group)
-    service.upsertBookmarkByIde(topicId, def)
+    service.addBookmarkByIde(topicId, def)
   }
 
   override fun bookmarkRemoved(group: BookmarkGroup, bookmark: Bookmark) {
@@ -111,19 +122,22 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
 
     val topicId = service.getTopicIdByName(group.name) ?: service.createTopic(group.name)
     val def = bookmark.toDef(topicId, group)
-    service.upsertBookmarkByIde(topicId, def)
+    val existing = service.findBookmarkByLocation(bookmark.file.url, bookmark.line, topicId)
+    if (existing != null) {
+      service.updateBookmarkByIde(def.copy(id = existing.id))
+    }
+    else {
+      service.addBookmarkByIde(topicId, def)
+    }
   }
 
   override fun bookmarkTypeChanged(bookmark: Bookmark) {
     if (bookmark !is LineBookmark) return
     service.getActiveTopicId() ?: return
-    val topicId = service.getBookmarkTopicId(bookmark.file.url, bookmark.line) ?: return
-    val existing = service.getTopicBookmarks(topicId)
-                     .firstOrNull { it.fileUrl == bookmark.file.url && it.line == bookmark.line } ?: return
+    val existing = service.findBookmarkByLocation(bookmark.file.url, bookmark.line) ?: return
 
     val newType = BookmarksManager.getInstance(project)?.getType(bookmark) ?: BookmarkType.DEFAULT
-    val def = existing.copy(type = newType)
-    service.upsertBookmarkByIde(topicId, def)
+    service.updateBookmarkByIde(existing.copy(type = newType))
   }
 
   private fun LineBookmark.toDef(topicId: Int, bookmarkGroup: BookmarkGroup) = BookmarkDef(

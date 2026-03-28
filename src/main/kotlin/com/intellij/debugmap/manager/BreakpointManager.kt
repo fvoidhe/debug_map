@@ -1,5 +1,6 @@
 package com.intellij.debugmap.manager
 
+import com.intellij.debugmap.generateNanoId
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.LocationDef
@@ -40,7 +41,7 @@ class BreakpointManager {
   private val nameToId = mutableMapOf<String, Int>()
 
   /** Secondary index: breakpoint id → BreakpointDef for O(1) id-based lookup. */
-  private val idMap = mutableMapOf<String, BreakpointDef>()
+  private val breakpointIdMap = mutableMapOf<String, BreakpointDef>()
 
   /** Secondary index: bookmark id → BookmarkDef for O(1) id-based lookup. */
   private val bookmarkIdMap = mutableMapOf<String, BookmarkDef>()
@@ -102,7 +103,7 @@ class BreakpointManager {
     nameToId.remove(topic.name)
     topic.breakpoints.forEach { def ->
       fileMap[def.fileUrl]?.remove(def)
-      idMap.remove(def.id)
+      breakpointIdMap.remove(def.id)
     }
     topic.bookmarks.forEach { def ->
       fileMap[def.fileUrl]?.remove(def)
@@ -119,7 +120,7 @@ class BreakpointManager {
     topicOrder.clear()
     fileMap.clear()
     nameToId.clear()
-    idMap.clear()
+    breakpointIdMap.clear()
     bookmarkIdMap.clear()
     snapshot.forEach { topic ->
       topicMap[topic.id] = topic
@@ -127,7 +128,7 @@ class BreakpointManager {
       nameToId[topic.name] = topic.id
       topic.breakpoints.forEach { def ->
         fileMap.getOrPut(def.fileUrl) { mutableListOf() }.add(def)
-        idMap[def.id] = def
+        breakpointIdMap[def.id] = def
       }
       topic.bookmarks.forEach { def ->
         fileMap.getOrPut(def.fileUrl) { mutableListOf() }.add(def)
@@ -142,56 +143,78 @@ class BreakpointManager {
     topicMap[topicId]?.breakpoints ?: emptyList()
   }
 
-  fun upsertBreakpointInTopic(topicId: Int, def: BreakpointDef): Unit = lock.withLock {
-    val topic = topicMap[topicId] ?: return@withLock
-    val list = topic.breakpoints.toMutableList()
-    val idx = list.indexOfFirst { def.sameLocation(it) }
-    val existing = list.getOrNull(idx)
-    // Same location → preserve the existing id (and name if caller omitted it). New location → add as-is.
-    val storedDef = when {
-      existing == null -> def.copy(topicId = topicId)
-      def.name == null -> def.copy(topicId = topicId, name = existing.name, id = existing.id)
-      else -> def.copy(topicId = topicId, id = existing.id)
-    }
-    if (idx >= 0) list[idx] = storedDef else list.add(storedDef)
-    topicMap[topicId] = topic.copy(breakpoints = list)
-    idMap[storedDef.id] = storedDef
-    fileMap.getOrPut(storedDef.fileUrl) { mutableListOf() }.apply {
-      val fIdx = indexOfFirst { it.topicId == topicId && storedDef.sameLocation(it) && it is BreakpointDef }
-      if (fIdx >= 0) set(fIdx, storedDef) else add(storedDef)
-    }
+  fun addBreakpointToTopic(topicId: Int, def: BreakpointDef): BreakpointDef? = lock.withLock {
+    val topic = topicMap[topicId] ?: return@withLock null
+    val duplicate = fileMap[def.fileUrl]?.any {
+      it is BreakpointDef && it.topicId == topicId && it.line == def.line && it.column == def.column && !it.isStale
+    } ?: false
+    if (duplicate) return@withLock null
+    val storedDef = def.copy(topicId = topicId, id = generateNanoId())
+    topicMap[topicId] = topic.copy(breakpoints = topic.breakpoints + storedDef)
+    breakpointIdMap[storedDef.id] = storedDef
+    fileMap.getOrPut(storedDef.fileUrl) { mutableListOf() }.add(storedDef)
+    storedDef
   }
 
   fun removeBreakpointFromTopic(topicId: Int, fileUrl: String, line: Int, column: Int = 0): Unit = lock.withLock {
     val topic = topicMap[topicId] ?: return@withLock
     val removed = topic.breakpoints.filter { it.fileUrl == fileUrl && it.line == line && it.column == column }
-    removed.forEach { idMap.remove(it.id) }
+    removed.forEach { breakpointIdMap.remove(it.id) }
     topicMap[topicId] = topic.copy(breakpoints = topic.breakpoints - removed.toSet())
     fileMap[fileUrl]?.removeIf { it.topicId == topicId && it.line == line && it is BreakpointDef && it.column == column }
   }
 
   /** Finds a breakpoint by its stable primary key across all topics. */
-  fun findBreakpointById(id: String): BreakpointDef? = lock.withLock { idMap[id] }
+  fun findBreakpointById(id: String): BreakpointDef? = lock.withLock { breakpointIdMap[id] }
+
+  /** Finds the breakpoint at the given file position across all topics. Only non-stale entries are returned by default. */
+  fun findBreakpointByLocation(fileUrl: String, line: Int, column: Int, isStale: Boolean = false): BreakpointDef? = lock.withLock {
+    fileMap[fileUrl]?.filterIsInstance<BreakpointDef>()?.firstOrNull { it.line == line && it.column == column && it.isStale == isStale }
+  }
+
+  /** Finds the breakpoint at the given file position within a specific topic. Only non-stale entries are returned by default. */
+  fun findBreakpointByLocation(fileUrl: String, line: Int, column: Int, topicId: Int, isStale: Boolean = false): BreakpointDef? = lock.withLock {
+    fileMap[fileUrl]?.filterIsInstance<BreakpointDef>()?.firstOrNull { it.line == line && it.column == column && it.topicId == topicId && it.isStale == isStale }
+  }
 
   /**
-   * Replaces the stored def for a breakpoint identified by [def.id].
-   * Unlike [upsertBreakpointInTopic], preserves only the id — all other fields (including name) are taken from [def].
-   * No-op if the id is not found.
+   * Generic update helper (must be called while [lock] is held).
+   * Looks up [def] by id in [idMap], enforces that [LocationDef.fileUrl] and [LocationDef.topicId]
+   * are immutable, replaces the entry in both the topic list and the secondary indexes, and returns
+   * the stored def. Returns null if the id is not found or the topic is missing.
    */
-  fun replaceBreakpointDef(def: BreakpointDef): Unit = lock.withLock {
-    val existing = idMap[def.id] ?: return@withLock
+  private fun <T : LocationDef> updateDefInTopic(
+    def: T,
+    idMap: MutableMap<String, T>,
+    getList: (TopicData) -> List<T>,
+    copyTopic: (TopicData, List<T>) -> TopicData,
+  ): T? {
+    val existing = idMap[def.id] ?: return null
     require(def.fileUrl == existing.fileUrl) { "fileUrl must not change: ${existing.fileUrl} → ${def.fileUrl}" }
-    val topic = topicMap[existing.topicId] ?: return@withLock
-    val list = topic.breakpoints.toMutableList()
+    require(def.topicId == existing.topicId) { "topicId must not change: ${existing.topicId} → ${def.topicId}" }
+    if (!def.isStale && (def.line != existing.line || existing.isStale)) {
+      val wouldDuplicate = fileMap[def.fileUrl]?.any { other ->
+        other.id != def.id && other.topicId == def.topicId && other.line == def.line && !other.isStale
+      } ?: false
+      if (wouldDuplicate) return null
+    }
+    val topic = topicMap[existing.topicId] ?: return null
+    val list = getList(topic).toMutableList()
     val idx = list.indexOfFirst { it.id == def.id }
-    if (idx < 0) return@withLock
+    if (idx < 0) return null
     list[idx] = def
-    topicMap[existing.topicId] = topic.copy(breakpoints = list)
+    topicMap[existing.topicId] = copyTopic(topic, list)
     idMap[def.id] = def
     fileMap[existing.fileUrl]?.apply {
-      val fIdx = indexOfFirst { it.topicId == existing.topicId && it is BreakpointDef && it.id == def.id }
+      val fIdx = indexOfFirst { it.id == def.id }
       if (fIdx >= 0) set(fIdx, def)
     }
+    return def
+  }
+
+  /** Replaces the stored def for a breakpoint identified by [def.id]. Returns the stored def, or null if the id is not found. */
+  fun updateBreakpoint(def: BreakpointDef): BreakpointDef? = lock.withLock {
+    updateDefInTopic(def, breakpointIdMap, { it.breakpoints }, { topic, list -> topic.copy(breakpoints = list) })
   }
 
 
@@ -203,31 +226,25 @@ class BreakpointManager {
     fileMap[fileUrl]?.any { it is BreakpointDef && it.line == line && it.topicId == activeTopicId && it.column == column } ?: false
   }
 
-  fun breakpointExists(fileUrl: String, line: Int, column: Int): Boolean = lock.withLock {
-    fileMap[fileUrl]?.any { it is BreakpointDef && it.line == line && it.column == column } ?: false
+  fun breakpointExists(fileUrl: String, line: Int, column: Int, isStale: Boolean = false): Boolean = lock.withLock {
+    fileMap[fileUrl]?.any { it is BreakpointDef && it.line == line && it.column == column && it.isStale == isStale } ?: false
   }
 
   fun getTopicBookmarks(topicId: Int): List<BookmarkDef> = lock.withLock {
     topicMap[topicId]?.bookmarks ?: emptyList()
   }
 
-  /**
-   * Adds or replaces a bookmark in [topicId].
-   * Uniqueness key is (fileUrl, line). If [def.name] is null, the existing entry's name is preserved.
-   */
-  fun upsertBookmarkInTopic(topicId: Int, def: BookmarkDef): Unit = lock.withLock {
-    val topic = topicMap[topicId] ?: return@withLock
-    val list = topic.bookmarks.toMutableList()
-    val idx = list.indexOfFirst { def.sameLocation(it) }
-    val existing = list.getOrNull(idx)
-    val storedDef = if (existing != null) def.copy(name = def.name ?: existing.name, id = existing.id) else def
-    if (idx >= 0) list[idx] = storedDef else list.add(storedDef)
-    topicMap[topicId] = topic.copy(bookmarks = list)
+  fun addBookmarkToTopic(topicId: Int, def: BookmarkDef): BookmarkDef? = lock.withLock {
+    val topic = topicMap[topicId] ?: return@withLock null
+    val duplicate = fileMap[def.fileUrl]?.any {
+      it is BookmarkDef && it.topicId == topicId && it.line == def.line && !it.isStale
+    } ?: false
+    if (duplicate) return@withLock null
+    val storedDef = def.copy(topicId = topicId, id = generateNanoId())
+    topicMap[topicId] = topic.copy(bookmarks = topic.bookmarks + storedDef)
     bookmarkIdMap[storedDef.id] = storedDef
-    fileMap.getOrPut(storedDef.fileUrl) { mutableListOf() }.apply {
-      val fIdx = indexOfFirst { it.topicId == topicId && storedDef.sameLocation(it) && it is BookmarkDef }
-      if (fIdx >= 0) set(fIdx, storedDef) else add(storedDef)
-    }
+    fileMap.getOrPut(storedDef.fileUrl) { mutableListOf() }.add(storedDef)
+    storedDef
   }
 
   fun removeBookmarkFromTopic(topicId: Int, fileUrl: String, line: Int): Unit = lock.withLock {
@@ -241,25 +258,19 @@ class BreakpointManager {
   /** Finds a bookmark by its stable primary key across all topics. */
   fun findBookmarkById(id: String): BookmarkDef? = lock.withLock { bookmarkIdMap[id] }
 
-  /**
-   * Replaces the stored def for a bookmark identified by [def.id] within the same topic.
-   * All fields except [fileUrl] and [topicId] may change. No-op if the id is not found.
-   */
-  fun replaceBookmarkDef(def: BookmarkDef): Unit = lock.withLock {
-    val existing = bookmarkIdMap[def.id] ?: return@withLock
-    require(def.fileUrl == existing.fileUrl) { "fileUrl must not change: ${existing.fileUrl} → ${def.fileUrl}" }
-    require(def.topicId == existing.topicId) { "topicId must not change via replaceBookmarkDef" }
-    val topic = topicMap[existing.topicId] ?: return@withLock
-    val list = topic.bookmarks.toMutableList()
-    val idx = list.indexOfFirst { it.id == def.id }
-    if (idx < 0) return@withLock
-    list[idx] = def
-    topicMap[existing.topicId] = topic.copy(bookmarks = list)
-    bookmarkIdMap[def.id] = def
-    fileMap[existing.fileUrl]?.apply {
-      val fIdx = indexOfFirst { it.topicId == existing.topicId && it is BookmarkDef && it.id == def.id }
-      if (fIdx >= 0) set(fIdx, def)
-    }
+  /** Finds the bookmark at the given file position across all topics. Only non-stale entries are returned by default. */
+  fun findBookmarkByLocation(fileUrl: String, line: Int, isStale: Boolean = false): BookmarkDef? = lock.withLock {
+    fileMap[fileUrl]?.filterIsInstance<BookmarkDef>()?.firstOrNull { it.line == line && it.isStale == isStale }
+  }
+
+  /** Finds the bookmark at the given file position within a specific topic. Only non-stale entries are returned by default. */
+  fun findBookmarkByLocation(fileUrl: String, line: Int, topicId: Int, isStale: Boolean = false): BookmarkDef? = lock.withLock {
+    fileMap[fileUrl]?.filterIsInstance<BookmarkDef>()?.firstOrNull { it.line == line && it.topicId == topicId && it.isStale == isStale }
+  }
+
+  /** Replaces the stored def for a bookmark identified by [def.id]. Returns the stored def, or null if the id is not found. */
+  fun updateBookmark(def: BookmarkDef): BookmarkDef? = lock.withLock {
+    updateDefInTopic(def, bookmarkIdMap, { it.bookmarks }, { topic, list -> topic.copy(bookmarks = list) })
   }
 
   fun getBookmarksByFile(fileUrl: String): List<BookmarkDef> = lock.withLock {

@@ -68,6 +68,7 @@ class BookmarkToolset : McpToolset {
   @McpDescription("""
         |Creates a new line bookmark at the specified file and line within a topic.
         |The topic is created automatically if it does not exist.
+        |Fails if a bookmark already exists at that location — use debug_bookmark_update to modify an existing one.
     """)
   suspend fun add_bookmark(
     @McpDescription(Constants.RELATIVE_PATH_IN_PROJECT_DESCRIPTION)
@@ -96,6 +97,10 @@ class BookmarkToolset : McpToolset {
     }
 
     val topicId = service.getTopicIdByName(topic) ?: service.createTopic(topic)
+
+    val existing = service.findBookmarkByLocation(file.url, lineZeroBased, topicId)
+    if (existing != null) mcpFail("A bookmark already exists at $path:$line (id=${existing.id}). Use debug_bookmark_update with id=${existing.id} to modify it.")
+
     val def = BookmarkDef(
       topicId = topicId,
       fileUrl = file.url,
@@ -103,10 +108,11 @@ class BookmarkToolset : McpToolset {
       name = description.takeIf { it.isNotBlank() },
       type = resolveBookmarkType(mnemonic),
     )
-    service.addBookmarkByToolWindow(topicId, def)
+    val storedDef = service.addBookmarkByToolWindow(topicId, def)
+                    ?: mcpFail("Bookmark could not be added (duplicate non-stale entry at $path:$line)")
     service.promoteTopicToTop(topicId)
 
-    return BookmarkResult(id = def.id, path = path, line = line, status = "created")
+    return BookmarkResult(id = storedDef.id, path = path, line = line, status = "created")
   }
 
   @McpTool(name = "debug_bookmark_update")
@@ -167,8 +173,12 @@ class BookmarkToolset : McpToolset {
       line = newLineZeroBased,
       name = newName,
       type = newType,
+      isStale = false,
     )
-    service.updateBookmarkByToolWindow(existing, newDef)
+    if (!service.updateBookmarkByToolWindow(existing, newDef)) {
+      val conflict = service.findBookmarkByLocation(existing.fileUrl, newLineZeroBased, existing.topicId)
+      mcpFail("A bookmark already exists at line ${newLineZeroBased + 1}${conflict?.let { " (conflict bookmark id=${it.id})" } ?: ""}.")
+    }
 
     val resultLine = newLineZeroBased + 1
     return BookmarkResult(id = id, path = existing.fileUrl, line = resultLine, status = "updated")
