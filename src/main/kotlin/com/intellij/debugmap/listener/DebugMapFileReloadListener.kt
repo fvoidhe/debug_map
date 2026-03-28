@@ -94,21 +94,31 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
       val breakPointLineSet = mutableSetOf<String>()
       val bookmarkLineSet = mutableSetOf<String>()
 
-      var lastComputedLine: Int? = null
-      var lastComputedTarget: Int = -1
+      var normalLastComputedLine: Int? = null
+      var normalLastComputedTarget: Int = -1
+
+      var staleLastComputedLine: Int? = null
+      var staleLastComputedTarget: Int = -1
 
       for ((def, currentLine) in allAnchors) {
-        val targetLine = if (currentLine == lastComputedLine) {
-          lastComputedTarget
-        }
-        else if (def.isStale) {
-          relocateStaleLine(change, currentLine, lastLine, pathIndex).also {
-            lastComputedLine = currentLine; lastComputedTarget = it
+        val targetLine = if (def.isStale) {
+          if (staleLastComputedLine == currentLine) {
+            staleLastComputedTarget
+          }
+          else {
+            relocateStaleLine(change, currentLine, lastLine, pathIndex).also {
+              staleLastComputedLine = currentLine; staleLastComputedTarget = it
+            }
           }
         }
         else {
-          relocateNormalLine(change, def, lastLine, pathIndex, document).also {
-            lastComputedLine = currentLine; lastComputedTarget = it
+          if (normalLastComputedLine == currentLine) {
+            normalLastComputedTarget
+          }
+          else {
+            relocateNormalLine(change, def, lastLine, pathIndex, document).also {
+              normalLastComputedLine = currentLine; normalLastComputedTarget = it
+            }
           }
         }
 
