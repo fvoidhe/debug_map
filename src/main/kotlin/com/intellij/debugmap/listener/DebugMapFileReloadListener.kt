@@ -4,13 +4,13 @@ import com.intellij.debugmap.DebugMapService
 import com.intellij.debugmap.StructuralPathEntry
 import com.intellij.debugmap.buildLinePsiStrings
 import com.intellij.debugmap.buildStructuralPathIndexBlocking
-import com.intellij.debugmap.listener.DebugMapFileReloadListener.Companion.PATH_BONUS
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.LocationDef
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
@@ -36,7 +36,7 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
   override fun beforeFileContentReload(file: VirtualFile, document: Document) {
     val fileUrl = file.url
     val breakpoints = service.getBreakpointsByFile(fileUrl)
-      .map { def -> def to service.getCurrentLine(def.topicId, def) }
+      .map { def -> def to def.line }
     val bookmarks = service.getBookmarksByFile(fileUrl)
       .map { def -> def to def.line }
     if (breakpoints.isEmpty() && bookmarks.isEmpty()) return
@@ -100,13 +100,15 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
       var staleLastComputedLine: Int? = null
       var staleLastComputedTarget: Int = -1
 
+      val candidates: MutableMap<Int, Pair<List<String>, String>> = mutableMapOf()
+
       for ((def, currentLine) in allAnchors) {
         val targetLine = if (def.isStale) {
           if (staleLastComputedLine == currentLine) {
             staleLastComputedTarget
           }
           else {
-            relocateStaleLine(change, currentLine, lastLine, pathIndex).also {
+            relocateStaleLine(def, lastLine, pathIndex, document, candidates).also {
               staleLastComputedLine = currentLine; staleLastComputedTarget = it
             }
           }
@@ -116,16 +118,18 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
             normalLastComputedTarget
           }
           else {
-            relocateNormalLine(change, def, lastLine, pathIndex, document).also {
+            relocateNormalLine(change, def, lastLine, pathIndex, document, candidates).also {
               normalLastComputedLine = currentLine; normalLastComputedTarget = it
             }
           }
         }
 
         if (targetLine < 0) {
-          when (def) {
-            is BreakpointDef -> service.markBreakpointStale(def.id)
-            is BookmarkDef -> service.markBookmarkStale(def.id)
+          if (!def.isStale) {
+            when (def) {
+              is BreakpointDef -> service.markBreakpointStale(def.id)
+              is BookmarkDef -> service.markBookmarkStale(def.id)
+            }
           }
         }
         else {
@@ -137,7 +141,7 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
               }
               else {
                 breakPointLineSet.add(key)
-                if (targetLine != def.line) service.moveBreakpointLine(def, targetLine)
+                if (targetLine != def.line || def.isStale) service.moveAndActiveBreakpointLine(def, targetLine)
                 if (def.topicId == activeTopicId) correctedActiveBreakpoints.add(def.copy(line = targetLine))
               }
             }
@@ -148,7 +152,7 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
               }
               else {
                 bookmarkLineSet.add(key)
-                if (targetLine != def.line) service.moveBookmarkLine(def, targetLine)
+                if (targetLine != def.line || def.isStale) service.moveAndActiveBookmarkLine(def, targetLine)
                 if (def.topicId == activeTopicId) correctedActiveBookmarks.add(def.copy(line = targetLine))
               }
             }
@@ -174,6 +178,7 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
     lastLine: Int,
     pathIndex: List<StructuralPathEntry>,
     document: Document,
+    candidates: MutableMap<Int, Pair<List<String>, String>>,
   ): Int {
     var newLine: Int = locationDef.line
     val currentLine = locationDef.line
@@ -197,13 +202,23 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
 
         // Each candidate carries its line number, token list, and the structural path of its
         // enclosing scope — the path is used as an extra confidence signal in findBestMatchLine.
-        val frozenChange = currentChange
-        val windowStart = (frozenChange.line1 - CANDIDATE_WINDOW).coerceAtLeast(0)
-        val windowEnd = (frozenChange.line1 + frozenChange.inserted + CANDIDATE_WINDOW).coerceAtMost(lastLine)
-        val candidates = ReadAction.compute<List<Triple<Int, List<String>, String>>, RuntimeException> {
-          buildCandidates(getPathIndexByChange(frozenChange, pathIndex, document, lastLine), document, windowStart, windowEnd)
+        val windowStart = (currentChange.line1 - CANDIDATE_WINDOW).coerceAtLeast(0)
+        val windowEnd = (currentChange.line1 + currentChange.inserted + CANDIDATE_WINDOW).coerceAtMost(lastLine)
+        val baseLine = currentChange.line1
+        val deltaLine = currentChange.inserted
+        runBlockingCancellable {
+          val entries = getPathIndexByChange(baseLine, deltaLine, pathIndex, document, lastLine)
+          buildCandidates(entries, document, windowStart, windowEnd, candidates)
         }
-        newLine = findBestMatchLine(candidates, locationDef.linePsiStrings, locationDef.logicalLocation, frozenChange.line1)
+        newLine = findBestMatchLine(candidates,
+                                    locationDef.linePsiStrings,
+                                    locationDef.logicalLocation,
+                                    currentChange.line1,
+                                    MATCH_CONFIDENCE)
+
+        if (newLine < 0 && currentChange.deleted == currentChange.inserted && currentChange.deleted == 1) {
+          newLine = currentChange.line1
+        }
         break
       }
     }
@@ -213,13 +228,31 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
   }
 
   private fun relocateStaleLine(
-    change: Change?,
-    currentLine: Int,
+    locationDef: LocationDef,
     lastLine: Int,
     pathIndex: List<StructuralPathEntry>,
+    document: Document,
+    candidates: MutableMap<Int, Pair<List<String>, String>>,
   ): Int {
-    // TODO: implement recovery algorithm for stale anchors
-    return -1
+    val windowStart = (locationDef.line - STALE_CANDIDATE_WINDOW).coerceAtLeast(0)
+    val windowEnd = (locationDef.line + STALE_CANDIDATE_WINDOW).coerceAtMost(lastLine)
+
+    runBlockingCancellable {
+      buildCandidates(getPathIndexByChange(locationDef.line, 0, pathIndex, document, lastLine),
+                      document,
+                      windowStart,
+                      windowEnd,
+                      candidates)
+    }
+
+    val newLine = findBestMatchLine(candidates,
+                                    locationDef.linePsiStrings,
+                                    locationDef.logicalLocation,
+                                    locationDef.line,
+                                    STALE_MATCH_CONFIDENCE)
+
+    if (newLine !in 0..<lastLine + 1) return -1
+    return newLine
   }
 
   /**
@@ -250,13 +283,14 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
   }
 
   private fun getPathIndexByChange(
-    change: Change,
+    baseLine: Int,
+    deltaLine: Int,
     pathIndex: List<StructuralPathEntry>,
     document: Document,
     lastLine: Int,
   ): List<StructuralPathEntry> {
-    val startOffset = document.getLineStartOffset(change.line1)
-    val endLine = (change.line1 + change.inserted).coerceAtMost(lastLine)
+    val startOffset = document.getLineStartOffset(baseLine)
+    val endLine = (baseLine + deltaLine).coerceAtMost(lastLine)
     val endOffset = document.getLineEndOffset(endLine)
     return pathIndex.filter { (it.element.endOffset >= startOffset && it.element.startOffset < endOffset) }
   }
@@ -272,46 +306,46 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
     document: Document,
     lineStart: Int,
     lineEnd: Int,
-  ): List<Triple<Int, List<String>, String>> {
-    if (entries.isEmpty()) return emptyList()
+    result: MutableMap<Int, Pair<List<String>, String>>,
+  ) {
+    if (entries.isEmpty()) return
     val lineToPath = buildLineToPath(entries, document)
       .filter { (line, _) -> line in lineStart..lineEnd }
-    if (lineToPath.isEmpty()) return emptyList()
-    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document) ?: return emptyList()
-    return lineToPath.mapNotNull { (line, path) ->
+    if (lineToPath.isEmpty()) return
+    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document) ?: return
+    lineToPath.filter { (line, _) -> result[line] == null }.forEach { (line, path) ->
       val lineStartOffset = document.getLineStartOffset(line)
       val lineEndOffset = document.getLineEndOffset(line)
-      val firstElement = psiFile.findElementAt(lineStartOffset) ?: return@mapNotNull null
+      val firstElement = psiFile.findElementAt(lineStartOffset) ?: return@forEach
       val tokens = buildLinePsiStrings(firstElement, lineEndOffset, psiFile)
-      if (tokens.isEmpty()) null else Triple(line, tokens, path)
-    }.sortedBy { it.first }
+      if (!tokens.isEmpty()) {
+        result[line] = Pair(tokens, path)
+      }
+    }
   }
 
-  /**
-   * Each candidate is (lineNumber, tokenList, structuralPath).
-   * Scoring: raw LCS length, plus [PATH_BONUS] if the candidate's structural path equals
-   * [logicalLocation] (i.e. the anchor was originally inside the same named scope), or
-   * minus [PATH_BONUS] if another candidate does match [logicalLocation] but this one doesn't.
-   * The MATCH_CONFIDENCE threshold is applied on the raw LCS ratio alone, so the path
-   * bonus/penalty only influences ranking among already-plausible candidates, not the filter.
-   */
   private fun findBestMatchLine(
-    candidates: List<Triple<Int, List<String>, String>>,
+    candidates: Map<Int, Pair<List<String>, String>>,
     target: List<String>,
     logicalLocation: String?,
     preferredLine: Int,
+    matchConfident: Double,
+    pathBonus: Int = PATH_BONUS,
   ): Int {
     if (candidates.isEmpty() || target.isEmpty()) return -1
     val hasPathMatch = !logicalLocation.isNullOrBlank() &&
-                       candidates.any { (_, _, path) -> path == logicalLocation }
+                       candidates.any { (_, v) -> v.second == logicalLocation }
     val best = candidates
-                 .mapNotNull { (line, tokens, path) ->
+                 .mapNotNull { (k, v) ->
+                   val line = k
+                   val tokens = v.first
+                   val path = v.second
                    val lcsScore = longestCommonSubsequence(target, tokens)
                    if (lcsScore == 0) return@mapNotNull null
                    val pathBonus = when {
                      logicalLocation.isNullOrBlank() -> 0
-                     path == logicalLocation -> PATH_BONUS
-                     hasPathMatch -> -2 * PATH_BONUS
+                     path == logicalLocation -> pathBonus
+                     hasPathMatch -> -2 * pathBonus
                      else -> 0
                    }
                    val totalScore = lcsScore + pathBonus
@@ -320,18 +354,22 @@ class DebugMapFileReloadListener(private val project: Project) : FileDocumentMan
                  .maxWithOrNull(compareBy({ it.second.first }, { -it.third }))
                ?: return -1
     val confidence = best.second.second.toDouble() / target.size
-    return if (confidence >= MATCH_CONFIDENCE) best.first else -1
+    return if (confidence >= matchConfident) best.first else -1
   }
 
   companion object {
     /** Minimum LCS/target-length ratio required to accept a line match. */
     private const val MATCH_CONFIDENCE = 0.6
 
+    private const val STALE_MATCH_CONFIDENCE = 0.8
+
     /** Bonus added to the ranking score when the candidate is in the same structural scope. */
     private const val PATH_BONUS = 2
 
     /** Lines to search above and below the change region when building candidates. */
     private const val CANDIDATE_WINDOW = 5
+
+    private const val STALE_CANDIDATE_WINDOW = 2
   }
 
   private fun longestCommonSubsequence(a: List<String>, b: List<String>): Int {

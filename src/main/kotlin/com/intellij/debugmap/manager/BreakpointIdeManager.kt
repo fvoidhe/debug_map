@@ -7,8 +7,7 @@ import com.intellij.ide.bookmark.BookmarkGroup
 import com.intellij.ide.bookmark.BookmarkProvider
 import com.intellij.ide.bookmark.BookmarksManager
 import com.intellij.ide.bookmark.LineBookmark
-import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.BaseProjectDirectories
 import com.intellij.openapi.project.Project
@@ -41,7 +40,7 @@ class BreakpointIdeManager(private val project: Project) {
 
   // ── Read operations ────────────────────────────────────────────────────────
 
-  fun buildReference(fileUrl: String, line: Int): String = ReadAction.compute<String, Exception> {
+  fun buildReference(fileUrl: String, line: Int): String = runReadActionBlocking {
     val vFile = VirtualFileManager.getInstance().findFileByUrl(fileUrl)
     val relativePath = if (vFile != null) {
       val index = ProjectRootManager.getInstance(project).fileIndex
@@ -68,7 +67,7 @@ class BreakpointIdeManager(private val project: Project) {
     return allLineBreakpoints().firstOrNull { it.fileUrl == fileUrl && it.line == lineZeroBased && it.column(this) == column }
   }
 
-  fun canPutAt(file: VirtualFile, lineZeroBased: Int): Boolean = ReadAction.compute<Boolean, Exception> {
+  fun canPutAt(file: VirtualFile, lineZeroBased: Int): Boolean = runReadActionBlocking {
     XDebuggerUtil.getInstance().getLineBreakpointTypes().any { it.canPutAt(file, lineZeroBased, project) }
   }
 
@@ -81,13 +80,13 @@ class BreakpointIdeManager(private val project: Project) {
    * Returns the created breakpoint, or null if no suitable type exists for this location.
    */
   fun addLineBreakpoint(file: VirtualFile, lineZeroBased: Int, def: BreakpointDef? = null): XLineBreakpoint<*>? {
-    val (type, properties) = ReadAction.compute<Pair<XLineBreakpointType<XBreakpointProperties<*>>, XBreakpointProperties<*>>?, Exception> {
+    val (type, properties) = runReadActionBlocking {
       @Suppress("UNCHECKED_CAST")
       val type = XDebuggerUtil.getInstance().getLineBreakpointTypes()
-          .filter { it.canPutAt(file, lineZeroBased, project) }
-          .maxByOrNull { it.priority }
-          as? XLineBreakpointType<XBreakpointProperties<*>>
-          ?: return@compute null
+                   .filter { it.canPutAt(file, lineZeroBased, project) }
+                   .maxByOrNull { it.priority }
+                   as? XLineBreakpointType<XBreakpointProperties<*>>
+                 ?: return@runReadActionBlocking null
 
       val properties = if (def != null && def.column > 0) {
         val position = XDebuggerUtil.getInstance().createPosition(file, lineZeroBased)
@@ -103,7 +102,7 @@ class BreakpointIdeManager(private val project: Project) {
         type.createBreakpointProperties(file, lineZeroBased)
       }
 
-      type to properties as XBreakpointProperties<*>
+      type to properties
     } ?: return null
 
     val bp = bpManager.addLineBreakpoint(type, file.url, lineZeroBased, properties)
@@ -242,13 +241,13 @@ internal fun XLineBreakpoint<*>.column(breakpointIdeaManager: BreakpointIdeManag
   val sameLineBreakpoints = breakpointIdeaManager.allLineBreakpoints()
     .filter { it.fileUrl == fileUrl && it.line == line }
 
-  return ReadAction.compute<Int, Exception> {
-    val position = sourcePosition ?: return@compute 0
-    highlightRange ?: return@compute 0
+  return runReadActionBlocking {
+    val position = sourcePosition ?: return@runReadActionBlocking 0
+    highlightRange ?: return@runReadActionBlocking 0
 
     val firstBreakpointOffset =
-        sameLineBreakpoints.minByOrNull { it.sourcePosition?.offset ?: Int.MAX_VALUE }
-            ?.sourcePosition?.offset ?: return@compute 0
+      sameLineBreakpoints.minByOrNull { it.sourcePosition?.offset ?: Int.MAX_VALUE }
+        ?.sourcePosition?.offset ?: return@runReadActionBlocking 0
 
     position.offset - firstBreakpointOffset + 1
   }

@@ -2,6 +2,7 @@ package com.intellij.debugmap
 
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -35,14 +36,14 @@ internal data class SemanticAnchor(
  * Returns null if the file or document cannot be resolved.
  */
 internal fun buildSemanticAnchor(project: Project, fileUrl: String, line: Int): SemanticAnchor? =
-  runCatching { ReadAction.compute<SemanticAnchor?, Throwable> { computeAnchor(project, fileUrl, line) } }.getOrNull()
+  runCatching { runBlockingCancellable { computeAnchor(project, fileUrl, line) } }.getOrNull()
 
 /** Synchronous variant for use on the EDT (e.g. document-reload listener callbacks). */
 internal fun buildStructuralPathIndexBlocking(project: Project, fileUrl: String): List<StructuralPathEntry> =
   runCatching {
-    ReadAction.compute<List<StructuralPathEntry>, Throwable> {
-      val vFile = VirtualFileManager.getInstance().findFileByUrl(fileUrl) ?: return@compute emptyList()
-      val psiFile = PsiManager.getInstance(project).findFile(vFile) ?: return@compute emptyList()
+    runBlockingCancellable {
+      val vFile = VirtualFileManager.getInstance().findFileByUrl(fileUrl) ?: return@runBlockingCancellable emptyList()
+      val psiFile = PsiManager.getInstance(project).findFile(vFile) ?: return@runBlockingCancellable emptyList()
       collectStructuralPathIndex(psiFile)
     }
   }.getOrDefault(emptyList())
@@ -119,7 +120,8 @@ internal fun buildLinePsiStrings(firstElement: PsiElement, endOffset: Int, psiFi
     collectLeafTexts(current, endOffset, result)
     if (current.nextSibling != null) {
       current = current.nextSibling
-    } else {
+    }
+    else {
       // Sibling chain exhausted before reaching end of line (e.g. `} else {` where `}`
       // is the last child of its block). Jump to the next PSI element in the file.
       val nextOffset = current.textRange.endOffset
@@ -136,7 +138,8 @@ private fun collectLeafTexts(element: PsiElement, endOffset: Int, result: Mutabl
   if (element.firstChild == null) {
     val text = element.text
     if (text.isNotEmpty()) result.add(text)
-  } else {
+  }
+  else {
     var child = element.firstChild
     while (child != null) {
       collectLeafTexts(child, endOffset, result)

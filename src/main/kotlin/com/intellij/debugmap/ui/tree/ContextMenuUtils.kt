@@ -16,6 +16,7 @@ import com.intellij.openapi.fileChooser.FileSaverDescriptor
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.keymap.KeymapUtil
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.util.io.sanitizeFileName
@@ -36,7 +37,7 @@ import kotlin.io.path.writeText
 internal fun shortcutHint(actionId: String): Set<String>? {
   val shortcuts = KeymapUtil.getActiveKeymapShortcuts(actionId).shortcuts
   val keystroke = shortcuts.filterIsInstance<KeyboardShortcut>().firstOrNull()?.firstKeyStroke
-    ?: return null
+                  ?: return null
   return setOf(KeymapUtil.getKeystrokeText(keystroke))
 }
 
@@ -137,7 +138,7 @@ internal fun doExport(topicIds: List<Int>, project: Project, service: DebugMapSe
     "json",
   )
   val wrapper = FileChooserFactory.getInstance().createSaveFileDialog(descriptor, project)
-    .save(null as com.intellij.openapi.vfs.VirtualFile?, defaultName) ?: return
+                  .save(null as com.intellij.openapi.vfs.VirtualFile?, defaultName) ?: return
   val path = wrapper.file.toPath()
   ApplicationManager.getApplication().executeOnPooledThread {
     try {
@@ -158,7 +159,7 @@ internal fun doImport(project: Project, service: DebugMapService) {
     .withDescription(DebugMapBundle.message("dialog.import.topics.description"))
   val file = FileChooser.chooseFiles(descriptor, project, null).firstOrNull() ?: return
   val content = try {
-    ReadAction.compute<String, Exception> { String(file.contentsToByteArray()) }
+    runBlockingCancellable { String(file.contentsToByteArray()) }
   }
   catch (e: Exception) {
     Messages.showErrorDialog(project, e.message, DebugMapBundle.message("dialog.import.error.title"))

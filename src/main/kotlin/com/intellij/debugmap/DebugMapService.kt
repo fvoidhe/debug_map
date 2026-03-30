@@ -17,11 +17,13 @@ import com.intellij.debugmap.manager.BreakpointIdeManager
 import com.intellij.debugmap.manager.column
 import com.intellij.debugmap.sync.BreakpointMarkerTracker
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
+import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import java.util.concurrent.ConcurrentHashMap
@@ -138,7 +140,7 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
         pg.breakpoints = topic.breakpoints.map { def ->
           PersistedBreakpoint().also { pb ->
             pb.fileUrl = def.fileUrl
-            pb.line = markerTracker.getCurrentLine(topic.id, def)
+            pb.line = def.line
             pb.column = def.column
             pb.typeId = def.typeId
             pb.condition = def.condition
@@ -308,14 +310,21 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     else breakpointManager.findBookmarkByLocation(fileUrl, line, isStale)
 
   /** Called from the IDE listener when a new breakpoint is added. Does NOT push to IDE. */
-  fun addBreakpointByIde(topicId: Int, def: BreakpointDef) {
+  fun addBreakpointByIde(topicId: Int, def: BreakpointDef): BreakpointDef? {
     val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
     val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath,
                                                    content = anchor.content,
                                                    linePsiStrings = anchor.linePsiStrings)
     else def
-    breakpointManager.addBreakpointToTopic(topicId, enrichedDef)
+    val result = breakpointManager.addBreakpointToTopic(topicId, enrichedDef)
+    if (result != null && !result.isStale && result.topicId != getActiveTopicId()) {
+      runBlockingCancellable {
+        markerTracker.trackDef(result)
+      }
+    }
+
     syncState()
+    return result
   }
 
   /** Called from the IDE listener when an existing breakpoint's properties change. [def] must carry the existing id. Does NOT push to IDE. */
@@ -344,12 +353,16 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     syncState()
   }
 
-  fun moveBreakpointLine(def: BreakpointDef, newLine: Int): BreakpointDef? {
+  fun moveAndActiveBreakpointLine(def: BreakpointDef, newLine: Int): BreakpointDef? {
     val anchor = buildSemanticAnchor(project, def.fileUrl, newLine)
     val updatedDef = if (anchor != null)
-      def.copy(line = newLine, logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings)
+      def.copy(line = newLine,
+               isStale = false,
+               logicalLocation = anchor.structuralPath,
+               content = anchor.content,
+               linePsiStrings = anchor.linePsiStrings)
     else
-      def.copy(line = newLine)
+      def.copy(line = newLine, isStale = false)
     val stored = breakpointManager.updateBreakpoint(updatedDef)
     syncState()
     return stored
@@ -362,14 +375,20 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     breakpointManager.getBookmarkTopicId(fileUrl, line)
 
   /** Called from the IDE listener when a new bookmark is added. Does NOT push to IDE. */
-  fun addBookmarkByIde(topicId: Int, def: BookmarkDef) {
+  fun addBookmarkByIde(topicId: Int, def: BookmarkDef): BookmarkDef? {
     val anchor = buildSemanticAnchor(project, def.fileUrl, def.line)
     val enrichedDef = if (anchor != null) def.copy(logicalLocation = anchor.structuralPath,
                                                    content = anchor.content,
                                                    linePsiStrings = anchor.linePsiStrings)
     else def
-    breakpointManager.addBookmarkToTopic(topicId, enrichedDef)
+    val result = breakpointManager.addBookmarkToTopic(topicId, enrichedDef)
+
+    if (result != null && !result.isStale && result.topicId != getActiveTopicId()) {
+      runBlockingCancellable { markerTracker.trackDef(result) }
+    }
+
     syncState()
+    return result
   }
 
   /** Called from the IDE listener when an existing bookmark's properties change. [def] must carry the existing id. Does NOT push to IDE. */
@@ -430,6 +449,9 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     if (topicId == breakpointManager.activeTopicId && storedDef != null) {
       ideManager.addBreakpointDefs(listOf(storedDef))
     }
+    else if (storedDef != null) {
+      runBlockingCancellable { markerTracker.trackDef(storedDef) }
+    }
     syncState()
     return storedDef
   }
@@ -473,6 +495,9 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     val storedDef = breakpointManager.addBookmarkToTopic(topicId, enrichedDef)
     if (topicId == breakpointManager.activeTopicId && storedDef != null) {
       ideManager.addBookmarkDefs(listOf(storedDef))
+    }
+    else if (storedDef != null) {
+      runBlockingCancellable { markerTracker.trackDef(storedDef) }
     }
     syncState()
     return storedDef
@@ -532,12 +557,16 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     return true
   }
 
-  fun moveBookmarkLine(def: BookmarkDef, newLine: Int): BookmarkDef? {
+  fun moveAndActiveBookmarkLine(def: BookmarkDef, newLine: Int): BookmarkDef? {
     val anchor = buildSemanticAnchor(project, def.fileUrl, newLine)
     val updatedDef = if (anchor != null)
-      def.copy(line = newLine, logicalLocation = anchor.structuralPath, content = anchor.content, linePsiStrings = anchor.linePsiStrings)
+      def.copy(line = newLine,
+               isStale = false,
+               logicalLocation = anchor.structuralPath,
+               content = anchor.content,
+               linePsiStrings = anchor.linePsiStrings)
     else
-      def.copy(line = newLine)
+      def.copy(line = newLine, isStale = false)
     val stored = breakpointManager.updateBookmark(updatedDef)
     syncState()
     return stored
@@ -622,10 +651,16 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
       val newId = breakpointManager.createTopic(topic.name)
       if (topic.status != TopicStatus.OPEN) breakpointManager.updateTopicStatus(newId, topic.status)
       for (bp in topic.breakpoints) {
-        breakpointManager.addBreakpointToTopic(newId, bp.copy(topicId = newId))
+        val result = breakpointManager.addBreakpointToTopic(newId, bp.copy(topicId = newId))
+        if (result != null) {
+          runBlockingCancellable { markerTracker.trackDef(result) }
+        }
       }
       for (bm in topic.bookmarks) {
-        breakpointManager.addBookmarkToTopic(newId, bm.copy(topicId = newId))
+        val result = breakpointManager.addBookmarkToTopic(newId, bm.copy(topicId = newId))
+        if (result != null) {
+          runBlockingCancellable { markerTracker.trackDef(result) }
+        }
       }
       count++
     }
@@ -665,7 +700,6 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
 
   internal fun onFileOpened(file: VirtualFile) = markerTracker.onFileOpened(file)
   internal fun onFileClosed(file: VirtualFile) = markerTracker.onFileClosed(file)
-  internal fun getCurrentLine(topicId: Int, def: BreakpointDef) = markerTracker.getCurrentLine(topicId, def)
   internal fun dropFileEntries(fileUrl: String) = markerTracker.dropFileEntries(fileUrl)
 
   /**

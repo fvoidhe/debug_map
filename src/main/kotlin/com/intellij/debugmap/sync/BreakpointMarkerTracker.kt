@@ -5,6 +5,7 @@ import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.LocationDef
 import com.intellij.openapi.Disposable
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
@@ -38,19 +39,23 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
     val document = FileDocumentManager.getInstance().getDocument(file) ?: return
     val fileUrl = file.url
     val activeTopicId = service.getActiveTopicId()
-    val topics = service.getTopics()
+
+    val locationDefList = mutableListOf<LocationDef>()
+    locationDefList.addAll(service.getBreakpointsByFile(fileUrl))
+    locationDefList.addAll(service.getBookmarksByFile(fileUrl))
+
     lock.withLock {
       var added = false
-      for (topic in topics) {
-        if (topic.id == activeTopicId) continue
-        for (def in (topic.breakpoints + topic.bookmarks)) {
-          if (def.isStale || def.fileUrl != fileUrl || def.line >= document.lineCount) continue
-          val start = document.getLineStartOffset(def.line)
-          val end = document.getLineEndOffset(def.line)
-          entries.add(Entry(def, document.createRangeMarker(start, end)))
-          added = true
-        }
+      for (def in locationDefList) {
+        if (def.topicId == activeTopicId) continue
+        if (def.isStale || def.line >= document.lineCount) continue
+
+        val start = document.getLineStartOffset(def.line)
+        val end = document.getLineEndOffset(def.line)
+        entries.add(Entry(def, document.createRangeMarker(start, end)))
+        added = true
       }
+
       if (added && fileUrl !in fileStates) {
         val disposable = Disposer.newDisposable(service)
         document.addDocumentListener(createDocumentListener(fileUrl), disposable)
@@ -61,15 +66,32 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
 
   fun onFileClosed(file: VirtualFile): Unit = flushByUrl(file.url)
 
-  /** Returns the marker-tracked line for [def] in case a sync is pending. */
-  fun getCurrentLine(topicId: Int, def: BreakpointDef): Int = lock.withLock {
-    val entry = entries.find {
-      it.def.topicId == topicId && it.def.fileUrl == def.fileUrl && it.def.line == def.line
+  /**
+   * Adds a single [RangeMarker] for [def] if the file is currently open and the def is eligible
+   * (non-stale, inactive topic, valid line). A no-op if a marker already exists for this def.
+   */
+  @RequiresReadLock
+  fun trackDef(def: LocationDef) {
+    if (def.isStale) return
+    if (def.topicId == service.getActiveTopicId()) return
+    val file = com.intellij.openapi.vfs.VirtualFileManager.getInstance().findFileByUrl(def.fileUrl) ?: return
+    val document = FileDocumentManager.getInstance().getDocument(file) ?: return
+    if (def.line >= document.lineCount) return
+    val fileUrl = def.fileUrl
+    lock.withLock {
+      val alreadyTracked = entries.any {
+        it.def.id == def.id
+      }
+      if (alreadyTracked) return
+      val start = document.getLineStartOffset(def.line)
+      val end = document.getLineEndOffset(def.line)
+      entries.add(Entry(def, document.createRangeMarker(start, end)))
+      if (fileUrl !in fileStates) {
+        val disposable = Disposer.newDisposable(service)
+        document.addDocumentListener(createDocumentListener(fileUrl), disposable)
+        fileStates[fileUrl] = FileState(disposable)
+      }
     }
-    if (entry != null && entry.marker.isValid)
-      entry.marker.document.getLineNumber(entry.marker.startOffset)
-    else
-      def.line
   }
 
   /** Syncs all marker positions to the service and releases all markers. */
@@ -112,8 +134,8 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
       val newLine = entry.marker.document.getLineNumber(entry.marker.startOffset)
       if (newLine != entry.def.line) {
         when (val def = entry.def) {
-          is BreakpointDef -> service.moveBreakpointLine(def, newLine)
-          is BookmarkDef -> service.moveBookmarkLine(def, newLine)
+          is BreakpointDef -> service.moveAndActiveBreakpointLine(def, newLine)
+          is BookmarkDef -> service.moveAndActiveBookmarkLine(def, newLine)
         }
         entry.def = entry.def.copyWithLine(newLine)
       }

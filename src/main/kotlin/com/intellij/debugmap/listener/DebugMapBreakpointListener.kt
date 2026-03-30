@@ -10,6 +10,7 @@ import com.intellij.ide.bookmark.BookmarkType
 import com.intellij.ide.bookmark.BookmarksListener
 import com.intellij.ide.bookmark.BookmarksManager
 import com.intellij.ide.bookmark.LineBookmark
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.breakpoints.XBreakpoint
@@ -66,7 +67,7 @@ class DebugMapBreakpointListener(private val project: Project) : XBreakpointList
     val movedDef = service.getTopicBreakpoints(activeTopicId)
                      .firstOrNull { it.fileUrl == breakpoint.fileUrl && !it.isStale && (it.line to it.column) !in idePositionsInFile }
                    ?: return
-    if (service.moveBreakpointLine(movedDef, breakpoint.line) == null) {
+    if (service.moveAndActiveBreakpointLine(movedDef, breakpoint.line) == null) {
       service.markBreakpointStale(movedDef.id)
     }
   }
