@@ -27,7 +27,7 @@ import kotlin.concurrent.withLock
  */
 class BreakpointMarkerTracker(private val service: DebugMapService) {
 
-  private class Entry(var def: LocationDef, val marker: RangeMarker)
+  private class Entry(val defId: String, val fileUrl: String, val marker: RangeMarker)
   private data class FileState(val listenerDisposable: Disposable)
 
   private val lock = ReentrantLock()
@@ -52,7 +52,7 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
 
         val start = document.getLineStartOffset(def.line)
         val end = document.getLineEndOffset(def.line)
-        entries.add(Entry(def, document.createRangeMarker(start, end)))
+        entries.add(Entry(def.id, def.fileUrl, document.createRangeMarker(start, end)))
         added = true
       }
 
@@ -80,12 +80,12 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
     val fileUrl = def.fileUrl
     lock.withLock {
       val alreadyTracked = entries.any {
-        it.def.id == def.id
+        it.defId == def.id
       }
       if (alreadyTracked) return
       val start = document.getLineStartOffset(def.line)
       val end = document.getLineEndOffset(def.line)
-      entries.add(Entry(def, document.createRangeMarker(start, end)))
+      entries.add(Entry(def.id, def.fileUrl, document.createRangeMarker(start, end)))
       if (fileUrl !in fileStates) {
         val disposable = Disposer.newDisposable(service)
         document.addDocumentListener(createDocumentListener(fileUrl), disposable)
@@ -96,7 +96,7 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
 
   /** Syncs all marker positions to the service and releases all markers. */
   fun flushAll() {
-    val urls = lock.withLock { entries.map { it.def.fileUrl }.toSet() }
+    val urls = lock.withLock { entries.map { it.fileUrl }.toSet() }
     urls.forEach(::flushByUrl)
   }
 
@@ -118,35 +118,36 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
     }
   }
 
-  // Called on line-count changes and at flush time. Reads marker positions and
-  // updates the service. entry.def is kept in sync so subsequent lookups are correct.
   private fun syncToService(fileUrl: String) = lock.withLock {
     val toRemove = mutableListOf<Entry>()
-    for (entry in entries.filter { it.def.fileUrl == fileUrl }) {
-      if (!entry.marker.isValid) {
-        when (val def = entry.def) {
-          is BreakpointDef -> service.removeBreakpointByIde(def.topicId, def.fileUrl, def.line, def.column)
-          is BookmarkDef -> service.removeBookmarkByIde(def.topicId, def.fileUrl, def.line)
-        }
+    for (entry in entries.filter { it.fileUrl == fileUrl }) {
+      val def = service.findLocationDefById(entry.defId)
+      if (def == null || def.isStale) {
         toRemove.add(entry)
         continue
       }
+
+      if (!entry.marker.isValid) {
+        service.removeLocationDefById(def.id)
+        toRemove.add(entry)
+        continue
+      }
+
       val newLine = entry.marker.document.getLineNumber(entry.marker.startOffset)
-      if (newLine != entry.def.line) {
-        when (val def = entry.def) {
+      if (newLine != def.line) {
+        when (def) {
           is BreakpointDef -> service.moveAndActiveBreakpointLine(def, newLine)
           is BookmarkDef -> service.moveAndActiveBookmarkLine(def, newLine)
         }
-        entry.def = entry.def.copyWithLine(newLine)
       }
     }
-    entries.removeAll(toRemove)
+    if (toRemove.isNotEmpty()) entries.removeAll(toRemove)
   }
 
   /** Drops markers/listener for [fileUrl] without syncing to service. */
   fun dropFileEntries(fileUrl: String) {
     val stateToDispose = lock.withLock {
-      entries.removeIf { it.def.fileUrl == fileUrl }
+      entries.removeIf { it.fileUrl == fileUrl }
       fileStates.remove(fileUrl)
     }
     stateToDispose?.let { Disposer.dispose(it.listenerDisposable) }

@@ -45,7 +45,7 @@ internal fun BreakpointContextMenu(
   var canReactivate = false
   runReadActionBlocking {
     val defDocument = defFile?.let { FileDocumentManager.getInstance().getDocument(it) }
-    canReactivate = isSingle && node.def.isStale && node.def.topicId == activeTopicId &&
+    canReactivate = isSingle && node.def.isStale &&
                     (defDocument != null && node.def.line < defDocument.lineCount) &&
                     breakpoints.none { !it.isStale && it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column }
   }

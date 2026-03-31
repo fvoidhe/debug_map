@@ -31,12 +31,21 @@ import org.jetbrains.jewel.ui.component.styling.MenuStyle
 import org.jetbrains.jewel.ui.icons.AllIconsKeys
 import org.jetbrains.jewel.ui.theme.menuStyle
 import java.awt.datatransfer.StringSelection
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
+import javax.swing.KeyStroke
 import kotlin.io.path.writeText
 
 internal fun shortcutHint(actionId: String): Set<String>? {
   val shortcuts = KeymapUtil.getActiveKeymapShortcuts(actionId).shortcuts
   val keystroke = shortcuts.filterIsInstance<KeyboardShortcut>().firstOrNull()?.firstKeyStroke
                   ?: return null
+  return setOf(KeymapUtil.getKeystrokeText(keystroke))
+}
+
+internal fun altArrowHint(up: Boolean): Set<String> {
+  val key = if (up) KeyEvent.VK_UP else KeyEvent.VK_DOWN
+  val keystroke = KeyStroke.getKeyStroke(key, InputEvent.ALT_DOWN_MASK)
   return setOf(KeymapUtil.getKeystrokeText(keystroke))
 }
 

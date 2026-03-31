@@ -6,6 +6,7 @@ import com.intellij.debugmap.manager.ParsedImport
 import com.intellij.debugmap.manager.column
 import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
+import com.intellij.debugmap.model.LocationDef
 import com.intellij.debugmap.model.PersistedBookmark
 import com.intellij.debugmap.model.PersistedBreakpoint
 import com.intellij.debugmap.model.PersistedState
@@ -264,6 +265,25 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
       ideManager.renameBookmark(def, trimmed)
     }
     syncState()
+  }
+
+  fun findLocationDefById(id: String): LocationDef? {
+    val result = breakpointManager.findBreakpointById(id)
+    if (result != null) return result
+
+    return breakpointManager.findBookmarkById(id)
+  }
+
+  fun removeLocationDefById(id: String): LocationDef? {
+    val def = breakpointManager.removeById(id) ?: return null
+    if (def.topicId == breakpointManager.activeTopicId) {
+      when (def) {
+        is BreakpointDef -> ideManager.findLineBreakpoint(def.fileUrl, def.line, def.column)?.let { ideManager.removeBreakpoint(it) }
+        is BookmarkDef -> ideManager.removeBookmarkDefs(listOf(def))
+      }
+    }
+    syncState()
+    return def
   }
 
   fun getTopics(): List<TopicData> = _topics.value
@@ -536,6 +556,11 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     if (stored.topicId == breakpointManager.activeTopicId) {
       ideManager.addBreakpointDefs(listOf(stored))
     }
+    else {
+      runReadActionBlocking {
+        markerTracker.trackDef(stored)
+      }
+    }
     syncState()
     return true
   }
@@ -551,6 +576,11 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
     if (stored.topicId == breakpointManager.activeTopicId) {
       val topicName = breakpointManager.getTopic(stored.topicId)?.name
       ideManager.addBookmarkDefs(listOf(stored), topicName)
+    }
+    else {
+      runReadActionBlocking {
+        markerTracker.trackDef(stored)
+      }
     }
     syncState()
     return true

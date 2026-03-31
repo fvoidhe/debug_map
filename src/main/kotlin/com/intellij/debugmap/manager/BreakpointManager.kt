@@ -164,6 +164,27 @@ class BreakpointManager {
     fileMap[fileUrl]?.removeIf { it.topicId == topicId && it.line == line && it is BreakpointDef && it.column == column }
   }
 
+
+  /**
+   * Removes the def with the given [id], whether it is a breakpoint or a bookmark.
+   * Returns the removed def, or null if no def with that id exists.
+   */
+  fun removeById(id: String): LocationDef? = lock.withLock {
+    val bp = breakpointIdMap.remove(id)
+    if (bp != null) {
+      topicMap[bp.topicId]?.let { topicMap[bp.topicId] = it.copy(breakpoints = it.breakpoints.filter { b -> b.id != id }) }
+      fileMap[bp.fileUrl]?.removeIf { it.id == id }
+      return@withLock bp
+    }
+    val bm = bookmarkIdMap.remove(id)
+    if (bm != null) {
+      topicMap[bm.topicId]?.let { topicMap[bm.topicId] = it.copy(bookmarks = it.bookmarks.filter { b -> b.id != id }) }
+      fileMap[bm.fileUrl]?.removeIf { it.id == id }
+      return@withLock bm
+    }
+    null
+  }
+
   /** Finds a breakpoint by its stable primary key across all topics. */
   fun findBreakpointById(id: String): BreakpointDef? = lock.withLock { breakpointIdMap[id] }
 

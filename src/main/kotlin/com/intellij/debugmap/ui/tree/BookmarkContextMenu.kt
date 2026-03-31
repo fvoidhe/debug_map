@@ -33,8 +33,8 @@ internal fun BookmarkContextMenu(
 ) {
   val isSingle = nodes.size == 1
   val node = nodes.firstOrNull() ?: return
-  val moveUpKeybinding = remember { shortcutHint("PreviousOccurence") }
-  val moveDownKeybinding = remember { shortcutHint("NextOccurence") }
+  val moveUpKeybinding = remember { altArrowHint(up = true) }
+  val moveDownKeybinding = remember { altArrowHint(up = false) }
   val renameKeybinding = remember { shortcutHint("Tree-startEditing") }
   val deleteKeybinding = remember { shortcutHint("\$Delete") }
   val copyReferenceKeybinding = remember { shortcutHint("\$Copy") }
@@ -44,7 +44,7 @@ internal fun BookmarkContextMenu(
   var canReactivate = false
   runReadActionBlocking {
     val defDocument = defFile?.let { FileDocumentManager.getInstance().getDocument(it) }
-    canReactivate = isSingle && node.def.isStale && node.def.topicId == activeTopicId &&
+    canReactivate = isSingle && node.def.isStale &&
                     (defDocument != null && node.def.line < defDocument.lineCount) &&
                     bookmarks.none { !it.isStale && it.fileUrl == node.def.fileUrl && it.line == node.def.line }
   }

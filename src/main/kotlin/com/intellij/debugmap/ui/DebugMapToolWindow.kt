@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.intellij.debugmap.DebugMapBundle
@@ -261,7 +263,32 @@ internal fun DebugMapToolWindow(project: Project) {
 
     DebugMapLazyTree(
       tree = tree,
-      modifier = Modifier.weight(1f).fillMaxWidth().onKeyEvent { event ->
+      modifier = Modifier.weight(1f).fillMaxWidth()
+        .onPreviewKeyEvent { event ->
+          if (event.type != KeyEventType.KeyDown || !event.isAltPressed) return@onPreviewKeyEvent false
+          when (event.key) {
+            Key.DirectionUp -> {
+              if (isSingle && selectionKind == SelectionKind.BOOKMARKS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.BookmarkItem ?: return@onPreviewKeyEvent false
+                val bookmarks = topics.find { it.id == node.def.topicId }?.bookmarks ?: return@onPreviewKeyEvent false
+                val idx = bookmarks.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line }
+                if (idx > 0) { service.reorderBookmark(node.def.topicId, node.def, -1); true } else false
+              }
+              else false
+            }
+            Key.DirectionDown -> {
+              if (isSingle && selectionKind == SelectionKind.BOOKMARKS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.BookmarkItem ?: return@onPreviewKeyEvent false
+                val bookmarks = topics.find { it.id == node.def.topicId }?.bookmarks ?: return@onPreviewKeyEvent false
+                val idx = bookmarks.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line }
+                if (idx >= 0 && idx < bookmarks.size - 1) { service.reorderBookmark(node.def.topicId, node.def, 1); true } else false
+              }
+              else false
+            }
+            else -> false
+          }
+        }
+        .onKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
         when (event.key) {
           Key.F2 -> {
