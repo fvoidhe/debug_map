@@ -376,7 +376,7 @@ class BreakpointManager {
       val aHasName = !a.name.isNullOrBlank()
       val bHasName = !b.name.isNullOrBlank()
       when {
-        aHasName && bHasName -> (a.name!!.lowercase().compareTo(b.name!!.lowercase())).takeIf { it != 0 } ?: a.compareTo(b)
+        aHasName && bHasName -> (a.name.lowercase().compareTo(b.name.lowercase())).takeIf { it != 0 } ?: a.compareTo(b)
         aHasName -> -1
         bHasName -> 1
         else -> a.compareTo(b)
