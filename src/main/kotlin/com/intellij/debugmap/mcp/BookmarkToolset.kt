@@ -111,6 +111,7 @@ class BookmarkToolset : McpToolset {
     val storedDef = service.addBookmarkByToolWindow(topicId, def)
                     ?: mcpFail("Bookmark could not be added (duplicate non-stale entry at $path:$line)")
     service.promoteTopicToTop(topicId)
+    service.setLastModifiedTopicId(topicId)
 
     return BookmarkResult(id = storedDef.id, path = path, line = line, status = "created")
   }
@@ -179,6 +180,7 @@ class BookmarkToolset : McpToolset {
       val conflict = service.findBookmarkByLocation(existing.fileUrl, newLineZeroBased, existing.topicId)
       mcpFail("A bookmark already exists at line ${newLineZeroBased + 1}${conflict?.let { " (conflict bookmark id=${it.id})" } ?: ""}.")
     }
+    service.setLastModifiedTopicId(existing.topicId)
 
     val resultLine = newLineZeroBased + 1
     return BookmarkResult(id = id, path = existing.fileUrl, line = resultLine, status = "updated")

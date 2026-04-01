@@ -84,6 +84,7 @@ internal fun DebugMapToolWindow(project: Project) {
   val service = remember(project) { DebugMapService.getInstance(project) }
   val topics by service.topics.collectAsState()
   val activeTopicId by service.activeTopicId.collectAsState()
+  val lastModifiedTopicId by service.lastModifiedTopicId.collectAsState()
   val recentBreakpoints by service.recentBreakpoints.collectAsState()
   val recentBookmarks by service.recentBookmarks.collectAsState()
   var selectedNodes by remember { mutableStateOf<List<DebugMapNode>>(emptyList()) }
@@ -118,16 +119,19 @@ internal fun DebugMapToolWindow(project: Project) {
     )
   }
 
-  val tree = remember(topics, activeTopicId, recentBreakpoints, recentBookmarks, searchText) {
+  val tree = remember(topics, activeTopicId, lastModifiedTopicId, recentBreakpoints, recentBookmarks, searchText) {
     buildTree {
       for (topic in topics) {
+        val isActive = topic.id == activeTopicId
+        val isMcpModified = !isActive && topic.id == lastModifiedTopicId
         val topicNode = DebugMapNode.Topic(
           id = topic.id,
           name = topic.name,
-          isActive = topic.id == activeTopicId,
+          isActive = isActive,
           status = topic.status,
           bookmarkCount = topic.bookmarks.size,
           breakpointCount = topic.breakpoints.size,
+          isMcpModified = isMcpModified,
         )
         val topicMatches = matchesSearch(searchText, topic.name)
         val filteredBookmarks = (when {
@@ -156,7 +160,7 @@ internal fun DebugMapToolWindow(project: Project) {
                 recentBreakpoints.indexOfFirst { it.topicId == bp.topicId && it.fileUrl == bp.fileUrl && it.line == bp.line && it.column == bp.column }
               val recentIndex = if (index != -1) index else null
               addLeaf(
-                data = DebugMapNode.BreakpointItem(bp, recentIndex, topic.id == activeTopicId),
+                data = DebugMapNode.BreakpointItem(bp, recentIndex, isActive),
                 id = "bp-${bp.id}",
               )
             }
@@ -334,21 +338,22 @@ internal fun DebugMapToolWindow(project: Project) {
             else false
           }
           Key.C -> {
-            if ((event.isMetaPressed || event.isCtrlPressed) && isSingle) {
-              val text = when (val node = selectedNodes.firstOrNull()) {
-                is DebugMapNode.Topic -> buildCopyText("topic", node.name, node.id.toString())
-                is DebugMapNode.BookmarkItem -> buildCopyText("bookmark",
-                                                              service.buildReference(node.def.fileUrl, node.def.line),
-                                                              node.def.name,
-                                                              node.def.id)
-                is DebugMapNode.BreakpointItem -> buildCopyText("breakpoint",
+            if ((event.isMetaPressed || event.isCtrlPressed) && selectionKind != SelectionKind.NONE) {
+              val lines = selectedNodes.map { node ->
+                when (node) {
+                  is DebugMapNode.Topic -> buildCopyText("topic", node.name, node.id.toString())
+                  is DebugMapNode.BookmarkItem -> buildCopyText("bookmark",
                                                                 service.buildReference(node.def.fileUrl, node.def.line),
                                                                 node.def.name,
                                                                 node.def.id)
-                else -> null
+                  is DebugMapNode.BreakpointItem -> buildCopyText("breakpoint",
+                                                                  service.buildReference(node.def.fileUrl, node.def.line),
+                                                                  node.def.name,
+                                                                  node.def.id)
+                }
               }
-              if (text != null) {
-                copyToClipboard(text); true
+              if (lines.isNotEmpty()) {
+                copyToClipboard(lines.joinToString("\n")); true
               }
               else false
             }

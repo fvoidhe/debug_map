@@ -65,6 +65,7 @@ class DebugToolset : McpToolset {
     val storedDef = service.addBreakpointByToolWindow(topicId, def)
                     ?: mcpFail("Breakpoint could not be added (duplicate non-stale entry at $path:$line)")
     service.promoteTopicToTop(topicId)
+    service.setLastModifiedTopicId(topicId)
 
     return BreakpointResult(path = path, line = line, status = "created", id = storedDef.id)
   }
@@ -171,6 +172,7 @@ class DebugToolset : McpToolset {
       val conflict = service.findBreakpointByLocation(def.fileUrl, newLineZeroBased, def.column ?: 0, def.topicId)
       mcpFail("A breakpoint already exists at line ${newLineZeroBased + 1}${conflict?.let { " (conflict breakpoint id=${it.id})" } ?: ""}.")
     }
+    service.setLastModifiedTopicId(def.topicId)
 
     return BreakpointResult(path = def.fileUrl, line = newLineZeroBased + 1, status = "updated", id = id)
   }

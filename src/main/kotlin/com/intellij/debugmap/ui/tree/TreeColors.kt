@@ -10,6 +10,7 @@ import org.jetbrains.jewel.ui.icons.AllIconsKeys
 
 internal val COLOR_ACTIVE = Color(0xFFFF6B6B.toInt())
 internal val COLOR_INACTIVE = Color(0xFF808080.toInt())
+internal val COLOR_MCP_MODIFIED = Color(0xFFE8A000.toInt())
 internal val COLOR_SEARCH_HIGHLIGHT = Color(0x55FFD700)
 
 /**

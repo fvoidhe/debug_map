@@ -54,6 +54,9 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   @Volatile
   private var isSessionStop = false
 
+  private val _lastModifiedTopicId = MutableStateFlow<Int?>(null)
+  val lastModifiedTopicId: StateFlow<Int?> = _lastModifiedTopicId.asStateFlow()
+
   companion object {
     fun getInstance(project: Project): DebugMapService =
       project.getService(DebugMapService::class.java)
@@ -290,6 +293,13 @@ class DebugMapService(val project: Project) : PersistentStateComponent<Persisted
   fun topicExists(topicId: Int): Boolean = breakpointManager.topicExists(topicId)
   fun getActiveTopicId(): Int? = breakpointManager.activeTopicId
   fun getTopicIdByName(name: String): Int? = breakpointManager.getTopicIdByName(name)
+
+  /** The topic id most recently flagged by an MCP add/update call, for user-facing highlighting. */
+  fun getLastModifiedTopicId(): Int? = _lastModifiedTopicId.value
+
+  fun setLastModifiedTopicId(topicId: Int?) {
+    _lastModifiedTopicId.value = topicId
+  }
 
   /**
    * Deletes a topic and its breakpoint definitions.

@@ -57,10 +57,11 @@ internal fun BookmarkContextMenu(
     style = menuStyle,
     adContent = null,
   ) {
-    copyReferenceItem(buildCopyText("bookmark", service.buildReference(node.def.fileUrl, node.def.line), node.def.name, node.def.id),
-                      copyReferenceKeybinding,
-                      onDismiss,
-                      enabled = isSingle)
+    copyReferenceItem(
+      nodes.joinToString("\n") { buildCopyText("bookmark", service.buildReference(it.def.fileUrl, it.def.line), it.def.name, it.def.id) },
+      copyReferenceKeybinding,
+      onDismiss,
+    )
     selectableItem(
       selected = false,
       iconKey = AllIconsKeys.Actions.MoveUp,

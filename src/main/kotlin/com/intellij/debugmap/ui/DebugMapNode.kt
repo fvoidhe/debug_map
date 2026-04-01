@@ -12,6 +12,7 @@ internal sealed class DebugMapNode {
     val status: TopicStatus,
     val bookmarkCount: Int,
     val breakpointCount: Int,
+    val isMcpModified: Boolean = false,
   ) : DebugMapNode()
   data class BookmarkItem(val def: BookmarkDef, val recentIndex: Int? = null) : DebugMapNode()
   data class BreakpointItem(val def: BreakpointDef, val recentIndex: Int? = null, val isInActiveTopic: Boolean = true) : DebugMapNode()

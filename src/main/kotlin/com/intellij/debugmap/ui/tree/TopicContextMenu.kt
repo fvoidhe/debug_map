@@ -48,7 +48,11 @@ internal fun TopicContextMenu(
     style = menuStyle,
     adContent = null,
   ) {
-    copyReferenceItem(buildCopyText("topic", node.name, node.id.toString()), copyReferenceKeybinding, onDismiss, enabled = isSingle)
+    copyReferenceItem(
+      nodes.joinToString("\n") { buildCopyText("topic", it.name, it.id.toString()) },
+      copyReferenceKeybinding,
+      onDismiss,
+    )
     selectableItem(
       selected = false,
       iconKey = AllIconsKeys.Actions.MoveUp,

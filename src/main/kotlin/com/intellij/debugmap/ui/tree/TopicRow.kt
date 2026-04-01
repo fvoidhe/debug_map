@@ -43,7 +43,11 @@ internal fun TopicRow(node: DebugMapNode.Topic, searchText: String = "") {
         modifier = Modifier
           .size(16.dp)
           .clip(CircleShape)
-          .background(if (node.isActive) COLOR_ACTIVE else COLOR_INACTIVE),
+          .background(when {
+            node.isActive -> COLOR_ACTIVE
+            node.isMcpModified -> COLOR_MCP_MODIFIED
+            else -> COLOR_INACTIVE
+          }),
       )
     }
     Column(modifier = Modifier.weight(1f, fill = false)) {
