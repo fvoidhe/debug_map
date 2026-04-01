@@ -1,24 +1,59 @@
 <!-- Plugin Configuration File: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
     <!-- Unique identifier of the plugin. It should be FQN, cannot be changed between the plugin versions. -->
-    <id>com.intellij.debugmap</id>
+    <id>io.github.fvoidcn.debugmap</id>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
     <name>Debug Map</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor url="https://github.com/fvoidCN/debug_map">fat v</vendor>
+    <vendor url="https://github.com/fvoidCN/debug_map" email="fvoidcn@gmail.com">fat v</vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         Manage breakpoints and bookmarks by topics, with AI-powered automatic placement to keep every debug flow organized and persistent. The following features are available:
         <ul>
-            <li>AI integration: let AI automatically place breakpoints and bookmarks at key code points during code review, writing, or any other workflow — helping you trace, review, and persist long call chains without missing a step</li>
+            <li>AI integration: let AI assistants like Claude automatically place breakpoints and bookmarks at key code points via MCP — helping you trace, review, and persist long call chains without missing a step</li>
+            <br/>
             <li>Activate a topic to show only its breakpoints — inactive topics are persisted in the background without interfering with other debug flows</li>
+            <br/>
             <li>Organize breakpoints and bookmarks into named topics with a dedicated management panel</li>
+            <br/>
             <li>Import and export topics for sharing or reuse across projects</li>
+        </ul>
+        <br/>
+        <b>Setup for AI integration:</b>
+        <ol>
+            <li>Go to <b>Settings → Tools → MCP Server</b> and enable <b>Enable MCP Server</b></li>
+            <li>Use <b>Auto-Configuration</b> to connect your AI assistant (e.g. Claude)</li>
+            <li>Go to <b>Settings → Tools → MCP Server → Exposed Tools</b> and enable the tools you need — it is recommended to only enable <b>BookmarkToolset</b> and <b>DebugToolset</b></li>
+        </ol>
+        <br/>
+        <b>Recommended AI prompts:</b>
+        <p>Add the following to your <code>CLAUDE.md</code>, <code>GEMINI.md</code>, or equivalent AI configuration file:</p>
+        <pre>
+# Code Review
+When reviewing code, use bookmarks only for points that warrant attention:
+- Bugs or potential issues found
+- Non-obvious design decisions or constraints
+- Worthy trade-offs or risks to discuss
+
+# Annotating Code Changes
+After modifying any code file, add or update bookmarks at the key changed positions
+so the user can review the implementation. Use the description to explain the intent
+of each point. For important control-flow points, also add or update breakpoints.
+
+Each new feature or task gets its own topic. Use a short descriptive topic name
+that reflects the feature.
+        </pre>
+        <br/>
+        <b>Contact:</b>
+        <ul>
+            <li>GitHub: <a href="https://github.com/fvoidCN/debug_map">fvoidCN/debug_map</a></li>
+            <li>Email: <a href="mailto:fvoidcn@gmail.com">fvoidcn@gmail.com</a></li>
+            <li>Discord: <a href="https://discordapp.com/channels/1452476393614082232/1452476394406678546">Join the discussion</a></li>
         </ul>
     ]]></description>
 
@@ -39,9 +74,6 @@
                     icon="AllIcons.Debugger.MultipleBreakpoints"
                     factoryClass="com.intellij.debugmap.ui.DebugMapToolWindowFactory"/>
     </extensions>
-    <depends>com.intellij.mcpServer</depends>
-
-    <resource-bundle>messages.DebugMapBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij.mcpServer">
         <mcpToolset implementation="com.intellij.debugmap.mcp.DebugToolset"/>
