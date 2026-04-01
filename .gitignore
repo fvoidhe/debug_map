@@ -29,3 +29,4 @@ CLAUDE.md
 .intellijPlatform/
 .kotlin/
 build/
+.idea/inspectionProfiles/

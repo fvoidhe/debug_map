@@ -5,6 +5,7 @@ import com.intellij.debugmap.model.BookmarkDef
 import com.intellij.debugmap.model.BreakpointDef
 import com.intellij.debugmap.model.LocationDef
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -118,6 +119,7 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
     }
   }
 
+  @RequiresReadLock
   private fun syncToService(fileUrl: String) = lock.withLock {
     val toRemove = mutableListOf<Entry>()
     for (entry in entries.filter { it.fileUrl == fileUrl }) {
@@ -154,7 +156,9 @@ class BreakpointMarkerTracker(private val service: DebugMapService) {
   }
 
   private fun flushByUrl(fileUrl: String) {
-    syncToService(fileUrl)
+    runReadActionBlocking {
+      syncToService(fileUrl)
+    }
     dropFileEntries(fileUrl)
   }
 }
