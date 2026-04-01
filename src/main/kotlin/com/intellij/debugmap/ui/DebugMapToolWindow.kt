@@ -274,6 +274,18 @@ internal fun DebugMapToolWindow(project: Project) {
                 val idx = bookmarks.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line }
                 if (idx > 0) { service.reorderBookmark(node.def.topicId, node.def, -1); true } else false
               }
+              else if (isSingle && selectionKind == SelectionKind.TOPICS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.Topic ?: return@onPreviewKeyEvent false
+                val idx = topics.indexOfFirst { it.id == node.id }
+                val nodeStatus = topics.getOrNull(idx)?.status
+                if (idx > 0 && topics.getOrNull(idx - 1)?.status == nodeStatus) { service.reorderTopic(node.id, -1); true } else false
+              }
+              else if (isSingle && selectionKind == SelectionKind.BREAKPOINTS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.BreakpointItem ?: return@onPreviewKeyEvent false
+                val breakpoints = topics.find { it.id == node.def.topicId }?.breakpoints ?: return@onPreviewKeyEvent false
+                val idx = breakpoints.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column }
+                if (idx > 0) { service.reorderBreakpoint(node.def.topicId, node.def, -1); true } else false
+              }
               else false
             }
             Key.DirectionDown -> {
@@ -282,6 +294,18 @@ internal fun DebugMapToolWindow(project: Project) {
                 val bookmarks = topics.find { it.id == node.def.topicId }?.bookmarks ?: return@onPreviewKeyEvent false
                 val idx = bookmarks.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line }
                 if (idx >= 0 && idx < bookmarks.size - 1) { service.reorderBookmark(node.def.topicId, node.def, 1); true } else false
+              }
+              else if (isSingle && selectionKind == SelectionKind.TOPICS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.Topic ?: return@onPreviewKeyEvent false
+                val idx = topics.indexOfFirst { it.id == node.id }
+                val nodeStatus = topics.getOrNull(idx)?.status
+                if (idx >= 0 && idx < topics.size - 1 && topics.getOrNull(idx + 1)?.status == nodeStatus) { service.reorderTopic(node.id, 1); true } else false
+              }
+              else if (isSingle && selectionKind == SelectionKind.BREAKPOINTS) {
+                val node = selectedNodes.firstOrNull() as? DebugMapNode.BreakpointItem ?: return@onPreviewKeyEvent false
+                val breakpoints = topics.find { it.id == node.def.topicId }?.breakpoints ?: return@onPreviewKeyEvent false
+                val idx = breakpoints.indexOfFirst { it.fileUrl == node.def.fileUrl && it.line == node.def.line && it.column == node.def.column }
+                if (idx >= 0 && idx < breakpoints.size - 1) { service.reorderBreakpoint(node.def.topicId, node.def, 1); true } else false
               }
               else false
             }

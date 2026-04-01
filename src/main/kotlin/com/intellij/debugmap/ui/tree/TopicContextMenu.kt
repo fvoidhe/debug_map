@@ -32,8 +32,8 @@ internal fun TopicContextMenu(
   val isSingle = nodes.size == 1
   val node = nodes.firstOrNull() ?: return
   val deletable = nodes.filter { it.id != activeTopicId }
-  val moveUpKeybinding = remember { shortcutHint("PreviousOccurence") }
-  val moveDownKeybinding = remember { shortcutHint("NextOccurence") }
+  val moveUpKeybinding = remember { altArrowHint(up = true) }
+  val moveDownKeybinding = remember { altArrowHint(up = false) }
   val renameKeybinding = remember { shortcutHint("Tree-startEditing") }
   val deleteKeybinding = remember { shortcutHint("\$Delete") }
   val copyReferenceKeybinding = remember { shortcutHint("\$Copy") }
