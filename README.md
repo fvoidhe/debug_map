@@ -2,9 +2,9 @@
 
 Manage breakpoints and bookmarks by topics, with AI-powered automatic placement to keep every debug flow organized and persistent.
 
-![Overview](docs/screenshot-overview.png)
+<img width="812" height="600" alt="Screenshot 2026-04-01 at 1 38 39 PM" src="https://github.com/user-attachments/assets/5b94988e-995d-4c94-b50f-0020a47fef36" />
 
-![Panel](docs/screenshot-panel.png)
+<img width="1335" height="854" alt="Screenshot 2026-04-01 at 2 30 08 PM" src="https://github.com/user-attachments/assets/c85b49b6-678d-4104-9093-322c1253cf6d" />
 
 ## Features
 
@@ -12,6 +12,7 @@ Manage breakpoints and bookmarks by topics, with AI-powered automatic placement 
 - **Topic-based isolation** — activate a topic to show only its breakpoints; inactive topics are persisted in the background without interfering with other debug flows
 - **Dedicated management panel** — organize breakpoints and bookmarks into named topics
 - **Import / export** — share topics or reuse them across projects
+
 
 ## Setup for AI integration
 
